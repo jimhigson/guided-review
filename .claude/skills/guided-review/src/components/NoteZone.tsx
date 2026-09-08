@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
-import { awaitingReply, messagesOf, noteAt, notesStore, sayOnNote } from "../notes.ts";
+import { awaitingReply, isAcked, messagesOf, noteAt, notesStore, sayOnNote } from "../notes.ts";
 import { offlineStore } from "../offline.ts";
 import { useStore } from "../stores.ts";
 
@@ -33,7 +33,8 @@ export type NoteZoneProps = {
 export const NoteZone = ({ path, line, done }: NoteZoneProps) => {
   useStore(notesStore);
   const offline = useStore(offlineStore);
-  const messages = messagesOf(noteAt(path, line));
+  const note = noteAt(path, line);
+  const messages = messagesOf(note);
   const draftKey = `${path}:${line}`;
   const [draft, setDraft] = useState(drafts.get(draftKey) ?? "");
   const [isClosed, setIsClosed] = useState(() => closedThreads.has(draftKey));
@@ -112,13 +113,17 @@ export const NoteZone = ({ path, line, done }: NoteZoneProps) => {
               <div class="note-pending">
                 <span>saved locally — an agent will pick this up later</span>
               </div>
-            : <div class="note-pending">
+            : isAcked(note, messages) ?
+              <div class="note-pending">
                 <span class="dots">
                   <i />
                   <i />
                   <i />
                 </span>
                 <span>the agent is on it — the reply lands here</span>
+              </div>
+            : <div class="note-pending note-unacked">
+                <span>sent — waiting for an agent to notice</span>
               </div>)}
         </div>
       )}

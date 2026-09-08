@@ -21,6 +21,10 @@ export type Note = {
   messages?: NoteMessage[];
   /** the single-text shape a note started as */
   text?: string;
+  /** how many messages existed when an agent last confirmed it's on this
+      thread - behind messages.length again the moment a new one arrives, so
+      an old ack can never be mistaken for having seen a later message */
+  ackedThrough?: number;
 };
 
 export type Notes = Record<string, Note[]>;
@@ -104,3 +108,9 @@ export const notesAsMarkdown = (): string =>
 /** the thread's last word is the reviewer's, so a reply is coming */
 export const awaitingReply = (messages: NoteMessage[]): boolean =>
   server !== undefined && messages.length > 0 && messages[messages.length - 1]?.from !== "agent";
+
+/** an agent has confirmed it has seen every message in the thread so far -
+    distinct from a reply, which answers the request rather than just
+    admitting to having read it */
+export const isAcked = (note: Note | undefined, messages: NoteMessage[]): boolean =>
+  (note?.ackedThrough ?? 0) >= messages.length;

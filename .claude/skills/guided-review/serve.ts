@@ -43,6 +43,8 @@ type Note = {
   /** the single-text shape a note started as */
   text?: string;
   messages?: NoteMessage[];
+  /** how many messages an agent has confirmed seeing - see ackNote.ts */
+  ackedThrough?: number;
 };
 
 type Notes = Record<string, Note[]>;

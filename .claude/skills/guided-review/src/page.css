@@ -1071,6 +1071,10 @@ button.save:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
   color: var(--accent);
 }
 
+/* sent, but no agent has confirmed picking it up yet - the confident dots
+   above are only honest once one has, so this stays plainly uncertain */
+.note-pending.note-unacked { color: var(--ink-faint); }
+
 .note-pending .dots {
   display: inline-flex;
   gap: 3px;

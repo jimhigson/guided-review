@@ -39,6 +39,7 @@ in the middle:
 | `buildPage.ts` | bundles `src/` to the one script and one stylesheet `build.ts` inlines |
 | `serve.ts` | serves the built page — how a review is normally delivered; its editors become editable and save back to the working tree |
 | `awaitNotes.ts` | prints each reviewer note as it's written, for as long as it runs - watch it with a persistent Monitor so you come back and act on it while they are still reading |
+| `ackNote.ts` | confirms you've seen a note, before you have an answer for it - turns "sent, waiting for an agent" into "the agent is on it" honestly |
 | `reply.ts` | answers a note in its own thread — what you did, or the one question you need answered |
 
 Read the scripts' own `--help`/header comments rather than re-deriving what
@@ -433,6 +434,19 @@ A note is a request, not an archive entry. Do not wait to be asked, and do not
 batch them up to the end of the review — the reviewer is sitting there, and a
 note acted on while they are still on that file is worth ten acted on an hour
 later.
+
+**Acknowledge it before you've worked out what to do about it:**
+
+```bash
+node .claude/skills/guided-review/ackNote.ts --notes <store>/notes.json \
+  --path src/ui/useStableValue.ts --line 7
+```
+
+The page's "sent, waiting for an agent" turns into "the agent is on it" the
+moment this lands - a truthful signal instead of an animation that runs the
+same whether anything is listening or not. Skip this only when you are about
+to answer outright with `reply.ts` in the same breath: a real reply already
+implies it, and acking first would just be a wasted round trip.
 
 When a note arrives, one of two things happens:
 
