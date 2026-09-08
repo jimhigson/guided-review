@@ -363,18 +363,25 @@ change isn't obvious from the surrounding groups.
 
 ## 8. Deliver it — serve when reachable, send a file when not
 
-**First decide which mode you are in, from the `REACHABLE_FROM_INTERNET`
-environment variable** (`echo "${REACHABLE_FROM_INTERNET:-unset}"`):
+**First decide which mode you are in, using your own judgement about where
+you are running** — there is no environment variable for this, so reason it
+out from what you know about the session:
 
-- **truthy** (`1`/`true`/any non-empty value) — you are on a machine the
-  reviewer can open a `127.0.0.1` port on. **Serve**, exactly as this section
-  describes: it is the richest form — editable diffs that save back to the
-  working tree, and a live notes channel you act on as they are written.
-- **unset or falsy** — you are somewhere the reviewer cannot reach a local
-  port (the cloud sandbox is the usual case; a served URL there is dead on
+- **The reviewer can reach a `127.0.0.1` port you open** — an ordinary local
+  terminal session, an SSH session onto their own machine, anything where
+  "open a browser to localhost:&lt;port&gt;" is something they can actually
+  do. **Serve**, exactly as this section describes: it is the richest form —
+  editable diffs that save back to the working tree, and a live notes channel
+  you act on as they are written.
+- **They can't** — a cloud sandbox, a CI job, a remote box with no port
+  forwarded to the reviewer's browser (a served URL there is dead on
   arrival). Do **not** serve. Switch to **non-reachable mode** below: the
   built `review.html` is already a single file that reads
   `window.__reviewServer` and behaves accordingly, so hand it over as-is.
+
+If genuinely unsure which one you are, ask the reviewer rather than guessing:
+serving somewhere unreachable hands them a dead link, and sending a file when
+you could have served loses the editable diffs and live notes for nothing.
 
 Everything from here to "Publishing" is the **reachable** path. Skip it in
 non-reachable mode and jump to "### Non-reachable mode".
@@ -491,7 +498,7 @@ but only `serve.ts` answers `/vs`, `/save` and `/notes`.
 
 ### Non-reachable mode (sandbox): send the file as-is
 
-When `REACHABLE_FROM_INTERNET` is unset/falsy, the built `review.html` is
+When the reviewer can't reach a served port, the built `review.html` is
 already a **single self-contained file** (font and ui runtime inlined, every
 before/after and image embedded) that **branches at runtime** on
 `window.__reviewServer`: only `serve.ts` injects that, so opened directly the
