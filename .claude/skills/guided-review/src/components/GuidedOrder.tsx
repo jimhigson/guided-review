@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 
 import { notesStore } from "../notes.ts";
-import { runsByPath } from "../pathRuns.ts";
+import { type PathRun, runsByPath } from "../pathRuns.ts";
 import { filesInGroup, groups } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { useStore } from "../stores.ts";
@@ -13,10 +13,18 @@ export type GuidedOrderProps = { state: ReadingState };
     with its files in the order to read them - the default contents view */
 export const GuidedOrder = ({ state }: GuidedOrderProps) => {
   const notes = useStore(notesStore);
+
+  const tickRun = (run: PathRun, on: boolean) => {
+    for (const file of run.files) {
+      state.tickFile(file, on);
+    }
+  };
   // a chapter's file list defaults to open, then closed the moment every file
   // in it is ticked - but only until the reader overrides it with the caret,
   // which then sticks regardless of what ticking does afterward
-  const [openOverride, setOpenOverride] = useState<Map<number, boolean>>(new Map());
+  const [openOverride, setOpenOverride] = useState<Map<number, boolean>>(
+    new Map(),
+  );
 
   return (
     <ol class="tree">
@@ -34,7 +42,9 @@ export const GuidedOrder = ({ state }: GuidedOrderProps) => {
                 checked={fullyTicked}
                 indeterminate={done > 0 && done < files.length}
                 aria-label={`Tick every file in ${group.title}`}
-                onChange={(event) => state.tickGroup(index, event.currentTarget.checked)}
+                onChange={(event) =>
+                  state.tickGroup(index, event.currentTarget.checked)
+                }
               />
               <button
                 type="button"
@@ -51,9 +61,13 @@ export const GuidedOrder = ({ state }: GuidedOrderProps) => {
                 type="button"
                 class="caret"
                 aria-expanded={open}
-                aria-label={open ? "Collapse this chapter" : "Expand this chapter"}
+                aria-label={
+                  open ? "Collapse this chapter" : "Expand this chapter"
+                }
                 onClick={() =>
-                  setOpenOverride((previous) => new Map(previous).set(index, !open))
+                  setOpenOverride((previous) =>
+                    new Map(previous).set(index, !open),
+                  )
                 }
               >
                 {open ? "" : ""}
@@ -61,22 +75,41 @@ export const GuidedOrder = ({ state }: GuidedOrderProps) => {
             </div>
             {open && (
               <ul class="tree-files">
-                {runsByPath(files).flatMap((run, runIndex) => [
-                  run.path === "" ? null : (
-                    <li class="tree-path-heading" title={run.path} key={`path-${runIndex}`}>
-                      <span>{run.path}/</span>
-                    </li>
-                  ),
-                  ...run.files.map((file) => (
-                    <TreeFileRow
-                      key={file.id}
-                      file={file}
-                      state={state}
-                      noted={(notes[file.path] ?? []).length}
-                      showDir={false}
-                    />
-                  )),
-                ])}
+                {runsByPath(files).flatMap((run, runIndex) => {
+                  const runDone = run.files.filter((file) =>
+                    state.ticked.has(file.path),
+                  ).length;
+                  return [
+                    run.path === "" ?
+                      null
+                    : <li class="tree-path-heading" key={`path-${runIndex}`}>
+                        <input
+                          class="tick small"
+                          type="checkbox"
+                          checked={runDone === run.files.length}
+                          indeterminate={
+                            runDone > 0 && runDone < run.files.length
+                          }
+                          aria-label={`Tick every file in ${run.path}`}
+                          onChange={(event) =>
+                            tickRun(run, event.currentTarget.checked)
+                          }
+                        />
+                        <span class="tree-path-label" title={run.path}>
+                          <span>{run.path}/</span>
+                        </span>
+                      </li>,
+                    ...run.files.map((file) => (
+                      <TreeFileRow
+                        key={file.id}
+                        file={file}
+                        state={state}
+                        noted={(notes[file.path] ?? []).length}
+                        showDir={false}
+                      />
+                    )),
+                  ];
+                })}
               </ul>
             )}
           </li>

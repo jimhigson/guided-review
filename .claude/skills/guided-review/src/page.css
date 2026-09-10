@@ -475,10 +475,20 @@ button.tree-file-link:focus-visible { outline: 2px solid var(--accent); outline-
 /* stated once above a contiguous run of files sharing a directory, rather
    than repeated on every one of them */
 .tree-path-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.25rem 0.05rem;
+}
+
+.tree-path-heading:first-child { padding-top: 0.1rem; }
+
+.tree-path-label {
   font-family: var(--mono);
   font-size: 1rem;
   color: var(--ink-faint);
-  padding: 0.35rem 0.25rem 0.05rem;
+  min-width: 0;
+  flex: 1 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -488,9 +498,7 @@ button.tree-file-link:focus-visible { outline: 2px solid var(--accent); outline-
   text-align: left;
 }
 
-.tree-path-heading > span { direction: ltr; unicode-bidi: embed; }
-
-.tree-path-heading:first-child { padding-top: 0.1rem; }
+.tree-path-label > span { direction: ltr; unicode-bidi: embed; }
 
 /* read already - opacity, not a colour change: the status chip and note
    count both set their own explicit colour, which a colour override
