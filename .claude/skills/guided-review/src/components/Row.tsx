@@ -46,7 +46,9 @@ export const Row = ({
   onCollapse,
   onDiff,
 }: RowProps) => {
-  const [counts, setCounts] = useState<[number, number]>(stats[file.path] ?? [0, 0]);
+  const [counts, setCounts] = useState<[number, number]>(
+    stats[file.path] ?? [0, 0],
+  );
   const [copied, setCopied] = useState(false);
   // opening a diff mounts its editor; closing only hides it, so an unsaved edit
   // survives the file being ticked away and reopened
@@ -101,7 +103,9 @@ export const Row = ({
           onClick={(event) => event.stopPropagation()}
           onChange={(event) => onTick(event.currentTarget.checked)}
         />
-        <span class={`chip chip-${file.status}`}>{statusLabel[file.status] ?? file.status}</span>
+        <span class={`chip chip-${file.status}`}>
+          {statusLabel[file.status] ?? file.status}
+        </span>
         <button
           type="button"
           class={`path ${copied ? "copied" : ""}`}
@@ -161,10 +165,14 @@ export const Row = ({
           {imageRow !== undefined ?
             <span class="row-stat">{imageByteStat(imageRow)}</span>
           : <span class="row-stat">
-              <span class="stat-add">+{added}</span> <span class="stat-rm">−{removed}</span>
+              <span class="stat-add">+{added}</span>{" "}
+              <span class="stat-rm">−{removed}</span>
             </span>
           }
-          <p class="note" dangerouslySetInnerHTML={{ __html: file.note ?? "" }} />
+          <p
+            class="note"
+            dangerouslySetInnerHTML={{ __html: file.note ?? "" }}
+          />
         </div>
         {imageRow !== undefined && imageStats !== undefined && (
           <p class="note img-note-line">{mechanicalNote(imageStats)}</p>
@@ -178,7 +186,8 @@ export const Row = ({
           >
             <span>
               {imageRow !== undefined ?
-                diffOpen ? "Hide image"
+                diffOpen ?
+                  "Hide image"
                 : "Show image"
               : diffOpen ?
                 "Hide diff"
@@ -189,7 +198,12 @@ export const Row = ({
             <div hidden={!diffOpen}>
               {imageRow !== undefined ?
                 <ImagePanel path={file.path} row={imageRow} />
-              : <MonacoDiff path={file.path} setCounts={setCounts} />}
+              : <MonacoDiff
+                  path={file.path}
+                  fileStatus={file.status}
+                  setCounts={setCounts}
+                />
+              }
             </div>
           )}
         </div>

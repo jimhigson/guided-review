@@ -10,10 +10,15 @@ import { activeReviewIsEditable, server, sides } from "../payload.ts";
 
 export type MonacoDiffProps = {
   path: string;
+  fileStatus: string;
   setCounts: (counts: [number, number]) => void;
 };
 
-export const MonacoDiff = ({ path, setCounts }: MonacoDiffProps) => {
+export const MonacoDiff = ({
+  path,
+  fileStatus,
+  setCounts,
+}: MonacoDiffProps) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const controls = useRef<DiffEditorControls | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
@@ -31,7 +36,11 @@ export const MonacoDiff = ({ path, setCounts }: MonacoDiffProps) => {
         if (!live || host === null) {
           return;
         }
-        controls.current = createDiffEditor(monaco, host, path, { setCounts, setDirty, setStatus });
+        controls.current = createDiffEditor(monaco, host, path, fileStatus, {
+          setCounts,
+          setDirty,
+          setStatus,
+        });
       })
       .catch((error: Error) => {
         // monaco is a dependency, not an enhancement - failing to get it is a
@@ -45,13 +54,13 @@ export const MonacoDiff = ({ path, setCounts }: MonacoDiffProps) => {
       controls.current?.dispose();
       controls.current = undefined;
     };
-  }, [path, setCounts]);
+  }, [path, fileStatus, setCounts]);
 
   if (sides[path] === undefined) {
     return (
       <p class="diff-missing">
-        not embedded — longer than <code>--max-side-lines</code> when this review was built; read
-        the file in the tree itself
+        not embedded — longer than <code>--max-side-lines</code> when this
+        review was built; read the file in the tree itself
       </p>
     );
   }
@@ -71,7 +80,8 @@ export const MonacoDiff = ({ path, setCounts }: MonacoDiffProps) => {
             "read-only — serve this review to edit and leave notes"
           : editable ?
             "editable — hover a line and click + to add a note"
-          : "read-only — the served checkout is on another review's branch; notes still work"}
+          : "read-only — the served checkout is on another review's branch; notes still work"
+          }
         </span>
         <span class={status.kind}>{status.text}</span>
         {editable && (

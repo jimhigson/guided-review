@@ -57,8 +57,12 @@ export type MonacoTextModel = {
 };
 
 export type MonacoCodeEditor = {
-  createDecorationsCollection: (decorations: MonacoDecoration[]) => MonacoDecorationsCollection;
-  changeViewZones: (callback: (accessor: MonacoViewZoneAccessor) => void) => void;
+  createDecorationsCollection: (
+    decorations: MonacoDecoration[],
+  ) => MonacoDecorationsCollection;
+  changeViewZones: (
+    callback: (accessor: MonacoViewZoneAccessor) => void,
+  ) => void;
   addAction: (action: {
     id: string;
     label: string;
@@ -66,15 +70,38 @@ export type MonacoCodeEditor = {
     keybindings: number[];
     run: (instance: MonacoCodeEditor) => void;
   }) => MonacoDisposable;
-  onMouseMove: (listener: (event: MonacoMouseEvent) => void) => MonacoDisposable;
+  onMouseMove: (
+    listener: (event: MonacoMouseEvent) => void,
+  ) => MonacoDisposable;
   onMouseLeave: (listener: () => void) => MonacoDisposable;
-  onMouseDown: (listener: (event: MonacoMouseEvent) => void) => MonacoDisposable;
+  onMouseDown: (
+    listener: (event: MonacoMouseEvent) => void,
+  ) => MonacoDisposable;
+  onDidContentSizeChange: (listener: () => void) => MonacoDisposable;
   getContentHeight: () => number;
   getPosition: () => MonacoPosition;
+  setModel: (model: MonacoTextModel) => void;
+  layout: () => void;
+  dispose: () => void;
+};
+
+export type MonacoEditorOptions = {
+  readOnly: boolean;
+  automaticLayout: boolean;
+  glyphMargin: boolean;
+  minimap: { enabled: boolean };
+  scrollBeyondLastLine: boolean;
+  renderOverviewRuler: boolean;
+  fontSize: number;
+  lineHeight: number;
+  scrollbar: { alwaysConsumeMouseWheel: boolean };
 };
 
 export type MonacoDiffEditor = {
-  setModel: (models: { original: MonacoTextModel; modified: MonacoTextModel }) => void;
+  setModel: (models: {
+    original: MonacoTextModel;
+    modified: MonacoTextModel;
+  }) => void;
   getModifiedEditor: () => MonacoCodeEditor;
   onDidUpdateDiff: (listener: () => void) => MonacoDisposable;
   updateOptions: (options: Partial<MonacoDiffEditorOptions>) => void;
@@ -95,7 +122,11 @@ export type MonacoDiffEditorOptions = {
   renderOverviewRuler: boolean;
   fontSize: number;
   lineHeight: number;
-  hideUnchangedRegions: { enabled: boolean; contextLineCount: number; minimumLineCount: number };
+  hideUnchangedRegions: {
+    enabled: boolean;
+    contextLineCount: number;
+    minimumLineCount: number;
+  };
   scrollbar: { alwaysConsumeMouseWheel: boolean };
 };
 
@@ -111,8 +142,19 @@ export type MonacoTypescriptDefaults = {
 
 export type MonacoApi = {
   editor: {
-    createDiffEditor: (host: HTMLElement, options: MonacoDiffEditorOptions) => MonacoDiffEditor;
-    createModel: (content: string, language: string, uri: MonacoUri) => MonacoTextModel;
+    createDiffEditor: (
+      host: HTMLElement,
+      options: MonacoDiffEditorOptions,
+    ) => MonacoDiffEditor;
+    create: (
+      host: HTMLElement,
+      options: MonacoEditorOptions,
+    ) => MonacoCodeEditor;
+    createModel: (
+      content: string,
+      language: string,
+      uri: MonacoUri,
+    ) => MonacoTextModel;
     defineTheme: (
       name: string,
       theme: {

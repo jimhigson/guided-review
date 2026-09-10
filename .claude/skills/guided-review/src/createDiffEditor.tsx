@@ -9,7 +9,12 @@ import { type DiffView, diffViewStore, showsBothSides } from "./diffView.ts";
 import { notifyDiskConflict } from "./diskConflict.ts";
 import { fetchFileFromDisk } from "./fileSync.ts";
 import { type FileFromDisk, liveEditors } from "./liveEditors.ts";
-import { type MonacoApi, type MonacoTextModel, type MonacoViewZone } from "./monacoApi.ts";
+import {
+  type MonacoApi,
+  type MonacoCodeEditor,
+  type MonacoTextModel,
+  type MonacoViewZone,
+} from "./monacoApi.ts";
 import { languageFor } from "./monacoLoader.ts";
 import { notesFor } from "./notes.ts";
 import { activeReviewIsEditable, reviewId, server, sides } from "./payload.ts";
@@ -35,20 +40,25 @@ const sideBySideOptions = (view: DiffView) => ({
   useInlineViewWhenSpaceIsLimited: false,
 });
 
-export const createDiffEditor = (
+/** the editing surface itself, and what differs about wiring it up: a diff
+    editor for a changed file, a plain one for a new file - nothing else in
+    createDiffEditor below this point needs to know which it got */
+type EditorHandle = {
+  modifiedEditor: MonacoCodeEditor;
+  original: MonacoTextModel | undefined;
+  layout: () => void;
+  dispose: () => void;
+  /** wired once fitToContent exists; returns how to stop watching on dispose */
+  startSizing: (fitToContent: () => void) => () => void;
+};
+
+const buildDiffEditorHandle = (
   monaco: MonacoApi,
   host: HTMLElement,
-  path: string,
-  { setCounts, setDirty, setStatus }: DiffEditorSetters,
-): DiffEditorControls => {
-  const side = sides[path];
-  if (side === undefined) {
-    throw new Error(`${path} has no before/after sides to diff`);
-  }
-  const language = languageFor(path);
-  // only the review matching the served checkout can write back; in a stack
-  // page the other reviews' editors read only, though their notes still work
-  const editable = activeReviewIsEditable();
+  original: MonacoTextModel,
+  modified: MonacoTextModel,
+  editable: boolean,
+): EditorHandle => {
   const editor = monaco.editor.createDiffEditor(host, {
     readOnly: !editable,
     originalEditable: false,
@@ -62,10 +72,78 @@ export const createDiffEditor = (
     lineHeight: 18,
     // unchanged stretches collapse to a foldable band, which is the whole
     // reason for using an editor over a static patch
-    hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 4 },
+    hideUnchangedRegions: {
+      enabled: true,
+      contextLineCount: 3,
+      minimumLineCount: 4,
+    },
     // let the page keep scrolling when the pointer crosses an editor
     scrollbar: { alwaysConsumeMouseWheel: false },
   });
+  editor.setModel({ original, modified });
+
+  return {
+    modifiedEditor: editor.getModifiedEditor(),
+    original,
+    layout: () => editor.layout(),
+    dispose: () => editor.dispose(),
+    startSizing: (fitToContent) => {
+      editor.onDidUpdateDiff(fitToContent);
+      // one choice drives every editor on the page, including the ones already built
+      return diffViewStore.subscribe(() => {
+        editor.updateOptions(sideBySideOptions(diffViewStore.get()));
+        fitToContent();
+      });
+    },
+  };
+};
+
+/** a new file has no "before" worth diffing against - an all-green diff says
+    nothing a plain editor on its content doesn't say more plainly */
+const buildPlainEditorHandle = (
+  monaco: MonacoApi,
+  host: HTMLElement,
+  modified: MonacoTextModel,
+  editable: boolean,
+): EditorHandle => {
+  const modifiedEditor = monaco.editor.create(host, {
+    readOnly: !editable,
+    automaticLayout: true,
+    glyphMargin: true,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    renderOverviewRuler: false,
+    fontSize: 12,
+    lineHeight: 18,
+    scrollbar: { alwaysConsumeMouseWheel: false },
+  });
+  modifiedEditor.setModel(modified);
+
+  return {
+    modifiedEditor,
+    original: undefined,
+    layout: () => modifiedEditor.layout(),
+    dispose: () => modifiedEditor.dispose(),
+    startSizing: (fitToContent) =>
+      modifiedEditor.onDidContentSizeChange(fitToContent).dispose,
+  };
+};
+
+export const createDiffEditor = (
+  monaco: MonacoApi,
+  host: HTMLElement,
+  path: string,
+  fileStatus: string,
+  { setCounts, setDirty, setStatus }: DiffEditorSetters,
+): DiffEditorControls => {
+  const side = sides[path];
+  if (side === undefined) {
+    throw new Error(`${path} has no before/after sides to diff`);
+  }
+  const language = languageFor(path);
+  // only the review matching the served checkout can write back; in a stack
+  // page the other reviews' editors read only, though their notes still work
+  const editable = activeReviewIsEditable();
 
   // the model's uri decides the typescript worker's script kind, so it has to
   // carry the real extension - an extensionless uri parses .tsx as .ts
@@ -75,20 +153,29 @@ export const createDiffEditor = (
       language,
       monaco.Uri.parse(`inmemory://review/${which}/${path}`),
     );
-  const original = modelFor(side.before, "original");
   const modified = modelFor(side.after, "modified");
-  editor.setModel({ original, modified });
 
-  const modifiedEditor = editor.getModifiedEditor();
+  const handle =
+    fileStatus === "A" ?
+      buildPlainEditorHandle(monaco, host, modified, editable)
+    : buildDiffEditorHandle(
+        monaco,
+        host,
+        modelFor(side.before, "original"),
+        modified,
+        editable,
+      );
+  const { modifiedEditor } = handle;
 
   // sized to its own content, always - so a long file or an open note thread
   // scrolls the page, never a scrollbar nested inside the editor itself
   const fitToContent = () => {
     host.style.height = `${Math.max(modifiedEditor.getContentHeight() + 24, 120)}px`;
-    editor.layout();
+    handle.layout();
   };
+  const stopSizing = handle.startSizing(fitToContent);
 
-  let {sha} = side;
+  let { sha } = side;
   let dirty = false;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -108,19 +195,32 @@ export const createDiffEditor = (
 
   const writeToDisk = async (): Promise<void> => {
     setStatus({ kind: "", text: "saving…" });
-    const response = await fetch(`/save?review=${encodeURIComponent(reviewId)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Review-Token": server?.token ?? "" },
-      body: JSON.stringify({ path, content: modified.getValue(), sha }),
-    }).catch(() => undefined);
+    const response = await fetch(
+      `/save?review=${encodeURIComponent(reviewId)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Review-Token": server?.token ?? "",
+        },
+        body: JSON.stringify({ path, content: modified.getValue(), sha }),
+      },
+    ).catch(() => undefined);
 
     if (response?.ok === true) {
-      const result = (await response.json()) as { sha: string; added: number; removed: number };
+      const result = (await response.json()) as {
+        sha: string;
+        added: number;
+        removed: number;
+      };
       ({ sha } = result);
       dirty = false;
       setDirty(false);
       setCounts([result.added, result.removed]);
-      setStatus({ kind: "state-saved", text: `saved  +${result.added} −${result.removed}` });
+      setStatus({
+        kind: "state-saved",
+        text: `saved  +${result.added} −${result.removed}`,
+      });
       return;
     }
     if (response?.status === 409) {
@@ -164,9 +264,16 @@ export const createDiffEditor = (
     // offsetHeight never reflects content that has since outgrown it - only
     // the (overflowing, unclipped) child that preact actually renders into
     // does
-    const watchZoneHeight = (id: string, zone: MonacoViewZone, content: HTMLElement): ResizeObserver => {
+    const watchZoneHeight = (
+      id: string,
+      zone: MonacoViewZone,
+      content: HTMLElement,
+    ): ResizeObserver => {
       const observer = new ResizeObserver(() => {
-        if (content.offsetHeight === 0 || content.offsetHeight === zone.heightInPx) {
+        if (
+          content.offsetHeight === 0 ||
+          content.offsetHeight === zone.heightInPx
+        ) {
           return;
         }
         zone.heightInPx = content.offsetHeight;
@@ -221,7 +328,9 @@ export const createDiffEditor = (
           if (content instanceof HTMLElement) {
             zoneObservers.push(watchZoneHeight(id, zone, content));
           } else if (import.meta.env.DEV) {
-            throw new Error("NoteZone was required here but rendered no root element");
+            throw new Error(
+              "NoteZone was required here but rendered no root element",
+            );
           }
           return id;
         });
@@ -256,14 +365,19 @@ export const createDiffEditor = (
     const hoverGlyph = modifiedEditor.createDecorationsCollection([]);
     const markHoveredLine = (line: number | undefined) => {
       hoverGlyph.set(
-        line === undefined || notesFor(path).some((note) => note.line === line) ?
+        (
+          line === undefined ||
+            notesFor(path).some((note) => note.line === line)
+        ) ?
           []
         : [
             {
               range: new monaco.Range(line, 1, line, 1),
               options: {
                 glyphMarginClassName: "add-note-glyph",
-                glyphMarginHoverMessage: { value: "Add a review note (alt-N)" },
+                glyphMarginHoverMessage: {
+                  value: "Add a review note (alt-N)",
+                },
               },
             },
           ],
@@ -276,7 +390,8 @@ export const createDiffEditor = (
     modifiedEditor.onMouseLeave(() => markHoveredLine(undefined));
     modifiedEditor.onMouseDown((event) => {
       if (
-        event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+        event.target.type ===
+          monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
         event.target.position !== null
       ) {
         editing = event.target.position.lineNumber;
@@ -308,21 +423,13 @@ export const createDiffEditor = (
     drawNotes();
   }
 
-  editor.onDidUpdateDiff(fitToContent);
-
-  // one choice drives every editor on the page, including the ones already built
-  const stopFollowingView = diffViewStore.subscribe(() => {
-    editor.updateOptions(sideBySideOptions(diffViewStore.get()));
-    fitToContent();
-  });
-
   return {
     dispose() {
-      stopFollowingView();
+      stopSizing();
       clearTimeout(saveTimer);
       liveEditors.delete(path);
-      editor.dispose();
-      original.dispose();
+      handle.dispose();
+      handle.original?.dispose();
       modified.dispose();
     },
     // puts the file back the way the review found it - like any other edit,
