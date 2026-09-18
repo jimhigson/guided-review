@@ -313,6 +313,11 @@ Write one json file — the whole of your output:
 }
 ```
 
+Each changed file goes in exactly one group — even one that bears on two
+themes sits in the one where it's best read, and the other group's blurb or
+notes can point to it. `build.ts` refuses a groups json that lists a path
+twice, naming the groups it appears in.
+
 The file and line counts are computed — don't put them in `facts`. Then:
 
 ```bash

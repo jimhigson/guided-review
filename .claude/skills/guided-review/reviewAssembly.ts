@@ -390,6 +390,31 @@ export type CollectedReview = {
   baseSha: string;
 };
 
+/** each file may be listed once. The page keys a file's tick, notes, stats
+    and before/after by its path, so a second listing would be a second row
+    sharing all of that with the first - both tick together, and the header's
+    count can never reach its total */
+export const rejectRepeatedPaths = (groups: ReviewGroup[]): void => {
+  const chaptersByPath = new Map<string, string[]>();
+  groups.forEach((group, index) => {
+    for (const { path } of group.items) {
+      chaptersByPath.set(path, [
+        ...(chaptersByPath.get(path) ?? []),
+        `chapter ${index + 1} ("${group.title}")`,
+      ]);
+    }
+  });
+  const repeated = [...chaptersByPath].filter(([, chapters]) => chapters.length > 1);
+  if (repeated.length > 0) {
+    throw new Error(
+      [
+        `${repeated.length} file(s) listed more than once in the groups json - keep each in the one chapter it belongs to:`,
+        ...repeated.map(([path, chapters]) => `  ${path}: ${chapters.join(", ")}`),
+      ].join("\n"),
+    );
+  }
+};
+
 /** every mechanical part of one review: diffs, sides, stats, links, images */
 export const collectReview = (
   repo: string,
@@ -399,6 +424,7 @@ export const collectReview = (
   imageBlockPrefix: string,
 ): CollectedReview => {
   const { groups } = authored;
+  rejectRepeatedPaths(groups);
   const meta = authored.meta ?? { title: "guided review" };
 
   const sides: Record<string, ReviewPayload["sides"][string]> = {};
