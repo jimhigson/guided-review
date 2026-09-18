@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { nextUnread } from "../nextUnread.ts";
 import { files, filesInGroup, groups, images, meta } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { type ReviewFile } from "../ReviewPayload.ts";
@@ -118,10 +119,7 @@ export const App = ({ initialTicks }: AppProps) => {
     }
   };
 
-  const goToNext = (file: ReviewFile) => {
-    const index = files.findIndex((candidate) => candidate.id === file.id);
-    goTo(files[index + 1]);
-  };
+  const goToNext = (file: ReviewFile) => goTo(nextUnread(files, ticked, file));
 
   // scrolling waits for the render that opened whatever the file was inside.
   // Held so the file just scrolled to is the active one for a moment, whether
