@@ -298,12 +298,20 @@ button.control.segment {
   top: var(--header-height, 3.2rem);
   align-self: flex-start;
   max-height: calc(100vh - var(--header-height, 3.2rem));
+  /* the head stays put and only the nav under it scrolls, so the chapter
+     headings stick to the top of the nav itself - no offset to keep in step
+     with the head's height */
+  display: flex;
+  flex-direction: column;
+  padding-left: 0.9rem;
+}
+
+.sidebar > nav {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* no top padding: that's on .sidebar-head instead, so its own sticky box
-     paints over the space rather than leaving a gap the scrolled tree
-     underneath can show through */
-  padding: 0 0.5rem 4rem 0.9rem;
+  padding: 0 0.5rem 4rem 0;
 }
 
 /* ---- the split between contents and reading order ----------------------
@@ -341,21 +349,14 @@ button.control.segment {
 
 .split:focus-visible { outline: none; }
 
-/* stays in view over the tree scrolling beneath it - the sidebar is its own
-   scroll container, so top:0 already pins it flush at the sidebar's own
-   padding edge with no gap above it, the same way .tree-group-head already
-   sticks within this same container below */
 .sidebar-head {
+  flex: none;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0.5rem;
-  margin: 0 0 0.6rem;
+  margin: 0 0.5rem 0.6rem 0;
   padding-top: 0.9rem;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--paper);
 }
 
 .sidebar-head label.control.select { justify-content: space-between; }
@@ -374,9 +375,8 @@ ol.tree, ul.tree-files, ul.fs-tree, ul.fs-dir-children, ul.tree-flat {
   align-items: center;
   gap: 0.4rem;
   padding: 0.2rem 0.25rem;
-  /* nests below the sidebar's own sticky head */
   position: sticky;
-  top: calc(5.23rem - 2px);
+  top: 0;
   background: var(--paper);
   z-index: 1;
 }
