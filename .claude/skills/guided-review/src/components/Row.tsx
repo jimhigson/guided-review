@@ -4,6 +4,7 @@ import { ImagePanel } from "../imageDiff/ImageDiff.tsx";
 import { ImageFileNote } from "../imageDiff/ImageFileNote.tsx";
 import { imageStatsStore, mechanicalNote } from "../imageDiff/imageStats.ts";
 import { editors, editorStore } from "../editor.ts";
+import { firstChangedLine } from "../firstChangedLine.ts";
 import { notesStore } from "../notes.ts";
 import { images, links, repoRoot, stats, statusLabel } from "../payload.ts";
 import { type ImageRow, type ReviewFile } from "../ReviewPayload.ts";
@@ -142,7 +143,7 @@ export const Row = ({
         )}
         <a
           class="open-in-editor"
-          href={editor.href(`${repoRoot}/${file.path}`)}
+          href={editor.href(`${repoRoot}/${file.path}`, firstChangedLine(file.path))}
           onClick={(event) => event.stopPropagation()}
         >
           {editor.label} ↗

@@ -6,30 +6,33 @@ import { makeStore } from "./stores.ts";
 
 export type Editor = {
   label: string;
-  /** a link that opens this absolute path in the editor */
-  href: (absolutePath: string) => string;
+  /** a link that opens this absolute path in the editor, at `line` if given */
+  href: (absolutePath: string, line?: number) => string;
 };
 
 /** a path joined onto a `scheme://file` url, which wants exactly one slash
     between them whatever the platform's paths start with */
-const underFileUrl = (scheme: string, absolutePath: string): string =>
-  `${scheme}://file/${absolutePath.replace(/^\/+/, "")}`;
+const underFileUrl = (scheme: string, absolutePath: string, line?: number): string =>
+  `${scheme}://file/${absolutePath.replace(/^\/+/, "")}${line === undefined ? "" : `:${line}`}`;
 
-const fileUrl = (absolutePath: string): string =>
-  encodeURIComponent(`file://${absolutePath.startsWith("/") ? "" : "/"}${absolutePath}`);
+/** the `open?url=` form TextMate and MacVim share */
+const openUrl = (scheme: string, absolutePath: string, line?: number): string =>
+  `${scheme}://open?url=${encodeURIComponent(
+    `file://${absolutePath.startsWith("/") ? "" : "/"}${absolutePath}`,
+  )}${line === undefined ? "" : `&line=${line}`}`;
 
 export const editors = {
-  vscode: { label: "VS Code", href: (path) => underFileUrl("vscode", path) },
+  vscode: { label: "VS Code", href: (path, line) => underFileUrl("vscode", path, line) },
   "vscode-insiders": {
     label: "VS Code Insiders",
-    href: (path) => underFileUrl("vscode-insiders", path),
+    href: (path, line) => underFileUrl("vscode-insiders", path, line),
   },
-  cursor: { label: "Cursor", href: (path) => underFileUrl("cursor", path) },
-  windsurf: { label: "Windsurf", href: (path) => underFileUrl("windsurf", path) },
-  vscodium: { label: "VSCodium", href: (path) => underFileUrl("vscodium", path) },
-  zed: { label: "Zed", href: (path) => underFileUrl("zed", path) },
-  textmate: { label: "TextMate", href: (path) => `txmt://open?url=${fileUrl(path)}` },
-  macvim: { label: "MacVim", href: (path) => `mvim://open?url=${fileUrl(path)}` },
+  cursor: { label: "Cursor", href: (path, line) => underFileUrl("cursor", path, line) },
+  windsurf: { label: "Windsurf", href: (path, line) => underFileUrl("windsurf", path, line) },
+  vscodium: { label: "VSCodium", href: (path, line) => underFileUrl("vscodium", path, line) },
+  zed: { label: "Zed", href: (path, line) => underFileUrl("zed", path, line) },
+  textmate: { label: "TextMate", href: (path, line) => openUrl("txmt", path, line) },
+  macvim: { label: "MacVim", href: (path, line) => openUrl("mvim", path, line) },
 } satisfies Record<string, Editor>;
 
 export type EditorId = keyof typeof editors;
