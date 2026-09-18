@@ -367,7 +367,6 @@ ol.tree, ul.tree-files, ul.fs-tree, ul.fs-dir-children, ul.tree-flat {
 }
 
 .tree { font-size: 1rem; }
-.tree-flat > .tree-file + .tree-file { margin-top: 0.05rem; }
 .tree-group + .tree-group { margin-top: 0.55rem; }
 
 .tree-group-head {
@@ -500,17 +499,45 @@ button.tree-file-link:focus-visible { outline: 2px solid var(--accent); outline-
 
 .tree-path-label > span { direction: ltr; unicode-bidi: embed; }
 
-/* read already - opacity, not a colour change: the status chip and note
-   count both set their own explicit colour, which a colour override
-   wouldn't reach, but a fade dims regardless */
-.tree-file.is-ticked { opacity: 0.55; }
-.tree-file.is-ticked .tree-base { text-decoration: line-through; }
+/* every list holding files wraps: each entry takes a whole line, except a
+   ticked file, which shrinks to a pill - so a run of ticked neighbours
+   flows inline together instead of costing a line apiece */
+ul.tree-files, ul.fs-tree, ul.fs-dir-children, ul.tree-flat {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.05rem 0.25rem;
+}
+
+ul.tree-files > li, ul.fs-tree > li, ul.fs-dir-children > li, ul.tree-flat > li {
+  flex: 1 0 100%;
+  min-width: 0;
+}
+
+/* read already - reduced to its tick and name, faded, and lifted to the top
+   of its list so every pill in a chapter, directory or flat list gathers in
+   one run to flow inline together */
+ul > li.tree-file.is-ticked {
+  order: -1;
+  flex: 0 1 auto;
+  max-width: 100%;
+  gap: 0.25rem;
+  padding: 0 0.45rem 0 0.2rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  opacity: 0.55;
+}
+
+ul > li.tree-file.is-ticked.is-active { border-color: var(--accent); opacity: 1; }
+
+/* with the status chip gone, the pill itself carries the status colour */
+ul > li.tree-file-A.is-ticked { background: var(--new-bg); }
+ul > li.tree-file-M.is-ticked { background: var(--mod-bg); }
+ul > li.tree-file-D.is-ticked { background: var(--del-bg); }
+ul > li.tree-file-R.is-ticked { background: var(--accent-soft); }
 
 /* ---- fs tree -------------------------------------------------------------
    the same files, nested by directory - an alternative to the guided order */
 
-.fs-tree > .fs-dir + .fs-dir,
-.fs-tree > .tree-file + .tree-file { margin-top: 0.05rem; }
 
 .fs-dir-head {
   display: flex;

@@ -13,12 +13,14 @@ export type TreeFileRowProps = {
 };
 
 /** one file in a contents list: its tick, status/size chip, and a link that
-    scrolls the reading order to it - shared by every contents view */
+    scrolls the reading order to it - shared by every contents view. Once
+    ticked it shrinks to a pill of just the tick and name, which the list
+    flows inline with its ticked neighbours to save vertical space */
 export const TreeFileRow = ({ file, state, noted, showDir }: TreeFileRowProps) => {
   const ticked = state.ticked.has(file.path);
   return (
     <li
-      class={`tree-file ${ticked ? "is-ticked" : ""} ${state.activeId === file.id ? "is-active" : ""}`}
+      class={`tree-file tree-file-${file.status} ${ticked ? "is-ticked" : ""} ${state.activeId === file.id ? "is-active" : ""}`}
     >
       <input
         class="tick small"
@@ -27,20 +29,22 @@ export const TreeFileRow = ({ file, state, noted, showDir }: TreeFileRowProps) =
         aria-label={`Read ${file.path}`}
         onChange={(event) => state.tickFile(file, event.currentTarget.checked)}
       />
-      <FileStatusChip path={file.path} status={file.status} />
+      {!ticked && <FileStatusChip path={file.path} status={file.status} />}
       <button type="button" class="tree-file-link" title={file.path} onClick={() => state.goTo(file)}>
-        <span
-          class={`file-icon ${isImagePath(file.path) ? "file-icon-image" : "file-icon-text"}`}
-          aria-hidden="true"
-        />
+        {!ticked && (
+          <span
+            class={`file-icon ${isImagePath(file.path) ? "file-icon-image" : "file-icon-text"}`}
+            aria-hidden="true"
+          />
+        )}
         <span class="tree-base">{basename(file.path)}</span>
-        {showDir && (
+        {showDir && !ticked && (
           <span class="tree-dir">
             <span>{dirname(file.path)}</span>
           </span>
         )}
       </button>
-      {noted > 0 && <span class="note-count">{noted}</span>}
+      {noted > 0 && !ticked && <span class="note-count">{noted}</span>}
     </li>
   );
 };

@@ -80,7 +80,9 @@ export const GuidedOrder = ({ state }: GuidedOrderProps) => {
                     state.ticked.has(file.path),
                   ).length;
                   return [
-                    run.path === "" ?
+                    // once every file under a heading is a pill, they've all
+                    // moved up out from under it, leaving it heading nothing
+                    run.path === "" || runDone === run.files.length ?
                       null
                     : <li class="tree-path-heading" key={`path-${runIndex}`}>
                         <input
