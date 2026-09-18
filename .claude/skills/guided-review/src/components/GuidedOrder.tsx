@@ -97,6 +97,7 @@ export const GuidedOrder = ({ state }: GuidedOrderProps) => {
                             tickRun(run, event.currentTarget.checked)
                           }
                         />
+                        <span class="dir-icon is-open" aria-hidden="true" />
                         <span class="tree-path-label" title={run.path}>
                           <span>{run.path}/</span>
                         </span>

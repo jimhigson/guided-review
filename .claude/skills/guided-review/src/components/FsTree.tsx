@@ -62,6 +62,7 @@ export const FsTree = ({ state }: FsTreeProps) => {
             <span class="fs-dir-caret" aria-hidden="true">
               {open ? "" : ""}
             </span>
+            <span class={`dir-icon ${open ? "is-open" : ""}`} aria-hidden="true" />
             <span class="fs-dir-name">{node.name}</span>
           </button>
           <span class="tree-count">

@@ -7,7 +7,7 @@
   font-display: block;
 }
 
-.file-icon {
+.file-icon, .dir-icon {
   font-family: "bootstrap-icons";
   font-style: normal;
   font-size: 1rem;
@@ -22,6 +22,11 @@
 .file-icon-text::before { content: "\f362"; } /* bi-file-earmark-code */
 .file-icon-image { color: var(--mod); }
 .file-icon-text { color: var(--accent); }
+
+/* a directory's, beside it wherever the contents names one */
+.dir-icon::before { content: "\f3d9"; } /* bi-folder2 */
+.dir-icon.is-open::before { content: "\f3d8"; } /* bi-folder2-open */
+.dir-icon { color: var(--ink-soft); }
 
 /* VS Code's own default theme (2026 Dark / 2026 Light, the theme shipped as
    default since 1.113) - every value below is read straight off
