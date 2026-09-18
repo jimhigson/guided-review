@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { ImagePanel } from "../imageDiff/ImageDiff.tsx";
 import { ImageFileNote } from "../imageDiff/ImageFileNote.tsx";
 import { imageStatsStore, mechanicalNote } from "../imageDiff/imageStats.ts";
+import { editors, editorStore } from "../editor.ts";
 import { notesStore } from "../notes.ts";
 import { images, links, repoRoot, stats, statusLabel } from "../payload.ts";
 import { type ImageRow, type ReviewFile } from "../ReviewPayload.ts";
@@ -56,6 +57,7 @@ export const Row = ({
   const notes = useStore(notesStore)[file.path] ?? [];
   const imageRow = images[file.path];
   const imageStats = useStore(imageStatsStore)[file.path];
+  const editor = editors[useStore(editorStore)];
   const nodeRef = useRef<HTMLDivElement>(null);
 
   // the contents scrolls to these, and the app watches them to know which file
@@ -139,11 +141,11 @@ export const Row = ({
           </a>
         )}
         <a
-          class="vscode"
-          href={`vscode://file/${repoRoot}/${file.path}`}
+          class="open-in-editor"
+          href={editor.href(`${repoRoot}/${file.path}`)}
           onClick={(event) => event.stopPropagation()}
         >
-          VS Code ↗
+          {editor.label} ↗
         </a>
         {notes.length > 0 && <span class="note-count">{notes.length}</span>}
         <button

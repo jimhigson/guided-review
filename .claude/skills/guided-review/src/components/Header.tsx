@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { diffViewStore, setDiffView } from "../diffView.ts";
+import { editors, editorStore, type EditorId, setEditor } from "../editor.ts";
 import faviconUrl from "../favicon.png";
 import { notesAsMarkdown, notesStore } from "../notes.ts";
 import { offlineStore } from "../offline.ts";
@@ -8,6 +9,7 @@ import { meta, server, total } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { useStore } from "../stores.ts";
 import { setTheme, themeStore } from "../theme.ts";
+import { SelectControl } from "./SelectControl.tsx";
 import { StackBar } from "./StackBar.tsx";
 
 export type HeaderProps = { state: ReadingState };
@@ -19,6 +21,7 @@ export const Header = ({ state }: HeaderProps) => {
   const diffView = useStore(diffViewStore);
   const theme = useStore(themeStore);
   const offline = useStore(offlineStore);
+  const editor = useStore(editorStore);
 
   // the contents and the group headings stick below this header, whatever
   // height its controls wrap to
@@ -138,6 +141,19 @@ export const Header = ({ state }: HeaderProps) => {
             Clear ticks
           </button>
         </div>
+        <SelectControl
+          class="editor-picker"
+          label="open in"
+          ariaLabel="Editor the file links open in"
+          value={editor}
+          onChange={(id) => setEditor(id as EditorId)}
+        >
+          {Object.entries(editors).map(([id, { label }]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </SelectControl>
         <div class="control-group theme-switcher" role="group" aria-label="Colour theme">
           <button
             type="button"
