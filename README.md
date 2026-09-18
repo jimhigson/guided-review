@@ -36,3 +36,19 @@ in) works just as well:
 ```sh
 git clone https://github.com/jimhigson/guided-review .claude/skills/guided-review
 ```
+
+## Update
+
+Pull the latest version into wherever it was installed:
+
+```sh
+npx skills update guided-review
+```
+
+Leave off the name to update every installed skill. Without a scope flag it
+asks whether to update project or global installs; `-p`/`--project` or
+`-g`/`--global` picks one, and `-y` skips the question (project if run inside
+a project, global otherwise).
+
+A clone (see "Without the CLI" above) updates with a plain `git pull` in its
+directory instead.
