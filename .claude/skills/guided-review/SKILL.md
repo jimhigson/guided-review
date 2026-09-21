@@ -136,7 +136,8 @@ What goes in it comes from git, not from you:
 It re-runs git's merge with `git merge-tree` (git 2.40+) and lists every file
 the resolution differs from git's own attempt at: first the files git could
 not merge (**conflicted**), then any the resolver changed although git merged
-them cleanly (**edited past merge**, eg a call site fixed up after a rename).
+them cleanly (**edited past merge**, eg a call site fixed up after a rename,
+or a new file the resolver created, staged or not).
 Files git merged cleanly and nobody touched are left out. They were never a
 resolver's decision. Which kind each file is goes to stderr and onto the page
 as a chip on the row. Staging the resolution doesn't lose any of this.
@@ -246,6 +247,7 @@ prints it, no `a/`/`b/` prefix; renames use the new path, deletions the old).
 It prints the base url it settled on.
 
 - `--github <url>` overrides the derivation; `--github none` links nothing.
+- A repo with no `origin` remote gets no links, rather than a failed build.
 - Non-GitHub remotes get no links: every forge anchors diffs differently, and
   the page carries the diffs anyway, so no link beats a wrong one.
 - Working-tree mode has nothing to link to at all; there the path is a

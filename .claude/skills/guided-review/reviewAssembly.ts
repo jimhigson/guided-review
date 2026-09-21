@@ -302,6 +302,11 @@ const diffFor = (repo: string, options: ReviewOptions, path: string, status: str
   if (options.mode === "conflict") {
     // measured from the current side, as the 2-way view shows it
     const refs = conflictRefsOf(options);
+    if (refs.resolution === "worktree" && git(repo, "ls-files", "--", path).trim() === "") {
+      // created by the resolver and never staged - diffed against nothing, as
+      // worktree mode diffs an untracked file
+      return git(repo, "diff", "--no-index", "--", "/dev/null", path);
+    }
     return refs.resolution === "worktree" ?
         git(repo, "diff", refs.current, "--", path)
       : git(repo, "diff", refs.current, refs.resolution, "--", path);
@@ -410,6 +415,10 @@ export const webUrl = (repo: string, options: ReviewOptions): string | undefined
     return options.github;
   }
 
+  // a repo with no origin has nowhere to link to - no links, not a failed build
+  if (!git(repo, "remote").split("\n").includes("origin")) {
+    return undefined;
+  }
   const remote = git(repo, "remote", "get-url", "origin").trim();
   // git@host:owner/name.git, https://host/owner/name.git, ssh://git@host/owner/name
   const match = /(?:@|\/\/)(?<host>[^/:]+)[/:](?<owner>[^/]+)\/(?<name>.+?)(?:\.git)?$/.exec(remote);

@@ -259,12 +259,18 @@ export const conflictFiles = (
 
   const resolutionArgs = refs.resolution === "worktree" ? [] : [refs.resolution];
   const edited = nonEmptyLines(run(repo, "diff", "--name-only", "--no-renames", autoTree, ...resolutionArgs));
+  // a file the resolver created but never staged is invisible to every diff
+  // against a tree - it is still part of the resolution
+  const untracked =
+    refs.resolution === "worktree" ?
+      nonEmptyLines(run(repo, "ls-files", "--others", "--exclude-standard"))
+    : [];
 
   const kinds = new Map<string, ConflictFileKind>();
   for (const path of conflicted) {
     kinds.set(path, "conflicted");
   }
-  for (const path of edited) {
+  for (const path of [...edited, ...untracked]) {
     if (!kinds.has(path)) {
       kinds.set(path, "edited");
     }
@@ -283,6 +289,10 @@ export const conflictFiles = (
       return [path, status.slice(0, 1)] as const;
     }),
   );
+
+  for (const path of untracked) {
+    statuses.set(path, "A");
+  }
 
   return [...kinds].map(([path, kind]) => ({ path, kind, status: statuses.get(path) ?? "M" }));
 };
