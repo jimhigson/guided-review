@@ -42,6 +42,11 @@ export type Side = {
   incoming?: string;
   /** a conflict review's common ancestor of current and incoming */
   ancestor?: string;
+  /** where the file was on the current side, when a move on the other side
+      means that isn't where the resolution has it */
+  currentPath?: string;
+  /** likewise for the incoming side */
+  incomingPath?: string;
 };
 
 /** why a file is in a conflict review: git could not merge it on its own, or

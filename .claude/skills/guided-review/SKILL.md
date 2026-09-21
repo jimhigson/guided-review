@@ -153,6 +153,13 @@ own, but it drives the colours, which carry the review:
   that side's own change - lost work unless it was meant - or faint where
   they were ancestor lines the other side removed anyway.
 
+A file moved on one side is followed: each side's pane shows that side's copy
+from wherever it lived there, found with git's rename detection. The pane's
+heading names the old path, and the row reads as renamed rather than added.
+The ancestor's copy comes from whichever side kept the old path, since after
+the edits git may no longer see the ancestor's copy as a rename of the
+resolution's.
+
 The 2-way views diff current → resolution. In the notes, say which side each
 decision favoured and why, and flag anything the resolver invented.
 

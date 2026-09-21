@@ -1047,6 +1047,9 @@ button.diff-toggle:focus-visible { outline: 2px solid var(--accent); outline-off
 .three-way-head > span:nth-child(3) { border-top-color: var(--tw-incoming); }
 .three-way-head strong { color: var(--ink); font-weight: 600; }
 .three-way-head code { font-family: var(--mono); font-size: 0.85rem; }
+/* a side where the file lived at another path, before a move */
+.tw-moved { color: var(--mod); }
+.tw-moved code { color: var(--mod); }
 
 .three-way-key {
   display: flex;

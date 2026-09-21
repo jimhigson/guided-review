@@ -22,6 +22,12 @@
 #   src/api/client.ts     only current changed it (the rename) - merged
 #                         cleanly and left alone, so it is not in the review
 #   README.md             only incoming changed it - likewise not in the review
+#   src/checkout/basket.ts   incoming moved src/basket.ts here, and both
+#                         sides changed addLine - conflicted, at the new path.
+#                         Current's side of it is at the old path
+#   src/format/units.ts   the same the other way round: current moved
+#                         src/units.ts here, so incoming's side is at the old
+#                         path
 set -euo pipefail
 
 dir="${1:?usage: conflictRepo.sh <dir> [merge|rebase]}"
@@ -92,6 +98,34 @@ cat > README.md <<'EOF'
 A small shop.
 EOF
 
+cat > src/basket.ts <<'EOF'
+export type Basket = { lines: { sku: string; quantity: number }[] };
+
+export const emptyBasket = (): Basket => ({ lines: [] });
+
+export const addLine = (basket: Basket, sku: string, quantity: number): Basket => ({
+  lines: [...basket.lines, { sku, quantity }],
+});
+
+export const lineCount = (basket: Basket): number => basket.lines.length;
+
+export const itemCount = (basket: Basket): number =>
+  basket.lines.reduce((sum, line) => sum + line.quantity, 0);
+EOF
+
+cat > src/units.ts <<'EOF'
+export const grams = (kg: number): number => kg * 1000;
+
+export const formatWeight = (grams: number): string =>
+  grams >= 1000 ? `${grams / 1000}kg` : `${grams}g`;
+
+export const formatVolume = (ml: number): string =>
+  ml >= 1000 ? `${ml / 1000}l` : `${ml}ml`;
+
+export const formatLength = (mm: number): string =>
+  mm >= 1000 ? `${mm / 1000}m` : `${mm}mm`;
+EOF
+
 git add -A
 git commit --quiet -m "the common ancestor"
 
@@ -146,6 +180,38 @@ EOF
 cat >> README.md <<'EOF'
 
 Prices include VAT, rounded to the penny.
+EOF
+
+mkdir -p src/checkout
+git mv src/basket.ts src/checkout/basket.ts
+cat > src/checkout/basket.ts <<'EOF'
+export type Basket = { lines: { sku: string; quantity: number }[] };
+
+export const emptyBasket = (): Basket => ({ lines: [] });
+
+/** adding a sku already in the basket tops up its line */
+export const addLine = (basket: Basket, sku: string, quantity: number): Basket =>
+  basket.lines.some((line) => line.sku === sku) ?
+    { lines: basket.lines.map((line) => (line.sku === sku ? { sku, quantity: line.quantity + quantity } : line)) }
+  : { lines: [...basket.lines, { sku, quantity }] };
+
+export const lineCount = (basket: Basket): number => basket.lines.length;
+
+export const itemCount = (basket: Basket): number =>
+  basket.lines.reduce((sum, line) => sum + line.quantity, 0);
+EOF
+
+cat > src/units.ts <<'EOF'
+export const grams = (kg: number): number => kg * 1000;
+
+export const formatWeight = (grams: number): string =>
+  grams >= 1000 ? `${grams / 1000} kg` : `${grams} g`;
+
+export const formatVolume = (ml: number): string =>
+  ml >= 1000 ? `${ml / 1000}l` : `${ml}ml`;
+
+export const formatLength = (mm: number): string =>
+  mm >= 1000 ? `${mm / 1000}m` : `${mm}mm`;
 EOF
 
 git add -A
@@ -211,6 +277,39 @@ export const featureFlags = {
 };
 EOF
 
+cat > src/basket.ts <<'EOF'
+export type Basket = { lines: { sku: string; quantity: number }[] };
+
+export const emptyBasket = (): Basket => ({ lines: [] });
+
+export const addLine = (basket: Basket, sku: string, quantity: number): Basket => {
+  if (quantity <= 0) {
+    throw new Error(`can't add ${quantity} of ${sku}`);
+  }
+  return { lines: [...basket.lines, { sku, quantity }] };
+};
+
+export const lineCount = (basket: Basket): number => basket.lines.length;
+
+export const itemCount = (basket: Basket): number =>
+  basket.lines.reduce((sum, line) => sum + line.quantity, 0);
+EOF
+
+mkdir -p src/format
+git mv src/units.ts src/format/units.ts
+cat > src/format/units.ts <<'EOF'
+export const grams = (kg: number): number => kg * 1000;
+
+export const formatWeight = (grams: number): string =>
+  grams >= 1000 ? `${(grams / 1000).toFixed(1)}kg` : `${grams}g`;
+
+export const formatVolume = (ml: number): string =>
+  ml >= 1000 ? `${ml / 1000}l` : `${ml}ml`;
+
+export const formatLength = (mm: number): string =>
+  mm >= 1000 ? `${mm / 1000}m` : `${mm}mm`;
+EOF
+
 git add -A
 git commit --quiet -m "discounts; loadUser checks the response"
 
@@ -268,6 +367,43 @@ export const renderProfileEmail = async (id: string): Promise<string> => {
   return `<a href="mailto:${user.email}">${user.email}</a>`;
 };
 EOF
+
+mkdir -p src/checkout src/format
+cat > src/checkout/basket.ts <<'EOF'
+export type Basket = { lines: { sku: string; quantity: number }[] };
+
+export const emptyBasket = (): Basket => ({ lines: [] });
+
+/** adding a sku already in the basket tops up its line */
+export const addLine = (basket: Basket, sku: string, quantity: number): Basket => {
+  if (quantity <= 0) {
+    throw new Error(`can't add ${quantity} of ${sku}`);
+  }
+  return basket.lines.some((line) => line.sku === sku) ?
+      { lines: basket.lines.map((line) => (line.sku === sku ? { sku, quantity: line.quantity + quantity } : line)) }
+    : { lines: [...basket.lines, { sku, quantity }] };
+};
+
+export const lineCount = (basket: Basket): number => basket.lines.length;
+
+export const itemCount = (basket: Basket): number =>
+  basket.lines.reduce((sum, line) => sum + line.quantity, 0);
+EOF
+
+cat > src/format/units.ts <<'EOF'
+export const grams = (kg: number): number => kg * 1000;
+
+export const formatWeight = (grams: number): string =>
+  grams >= 1000 ? `${(grams / 1000).toFixed(1)} kg` : `${grams} g`;
+
+export const formatVolume = (ml: number): string =>
+  ml >= 1000 ? `${ml / 1000}l` : `${ml}ml`;
+
+export const formatLength = (mm: number): string =>
+  mm >= 1000 ? `${mm / 1000}m` : `${mm}mm`;
+EOF
+# git can leave the old path behind beside a conflicted rename
+rm -f src/basket.ts src/units.ts
 
 git add -A
 

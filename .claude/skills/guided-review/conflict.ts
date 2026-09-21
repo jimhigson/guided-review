@@ -231,6 +231,74 @@ export const resolveConflict = (repo: string, ref?: string): ConflictRefs => {
 
 const nonEmptyLines = (text: string): string[] => text.split("\n").filter((line) => line !== "");
 
+/** the diff args comparing a commit against the resolution, wherever it is */
+const againstResolution = (refs: ConflictRefs, from: string): string[] =>
+  refs.resolution === "worktree" ? [from] : [from, refs.resolution];
+
+export type ConflictSide = "current" | "incoming" | "ancestor";
+
+const renameCache = new WeakMap<ConflictRefs, Map<ConflictSide, Map<string, string>>>();
+
+/** a side's renames into the resolution, as resolution path -> that side's
+    path, by git's own rename detection */
+const renamesFrom = (repo: string, refs: ConflictRefs, side: ConflictSide): Map<string, string> => {
+  let bySide = renameCache.get(refs);
+  if (bySide === undefined) {
+    bySide = new Map();
+    renameCache.set(refs, bySide);
+  }
+  let renames = bySide.get(side);
+  if (renames === undefined) {
+    renames = new Map(
+      nonEmptyLines(
+        run(repo, "diff", "--name-status", "-M", "--diff-filter=R", ...againstResolution(refs, refs[side])),
+      ).flatMap((line) => {
+        const [, from, to] = line.split("\t");
+        return from === undefined || to === undefined ? [] : [[to, from] as const];
+      }),
+    );
+    bySide.set(side, renames);
+  }
+  return renames;
+};
+
+/**
+ * where a file of the resolution lived on one of the sides. Usually the same
+ * path, but a file one side moved - and maybe edited too - is at its old path
+ * on the other side and in the ancestor, and reading it at the new path there
+ * would find nothing
+ */
+export const pathOnSide = (
+  repo: string,
+  refs: ConflictRefs,
+  side: ConflictSide,
+  path: string,
+): string => {
+  const renamed = renamesFrom(repo, refs, side).get(path);
+  if (side !== "ancestor") {
+    return renamed ?? path;
+  }
+  // the ancestor's copy can be too far from the resolution for git to call
+  // it a rename, after both sides' edits and the resolver's. But it is
+  // wherever the side that didn't move the file still has it
+  const candidates = [
+    renamed,
+    pathOnSide(repo, refs, "current", path),
+    pathOnSide(repo, refs, "incoming", path),
+    path,
+  ];
+  return candidates.find((candidate) => candidate !== undefined && existsAt(repo, refs.ancestor, candidate)) ?? path;
+};
+
+const existsAt = (repo: string, commit: string, path: string): boolean => {
+  try {
+    execFileSync("git", ["cat-file", "-e", `${commit}:${path}`], { cwd: repo, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * every file the resolution differs from git's own attempt at the merge in,
  * conflicted ones first: those git gave up on, then any the resolver changed
@@ -280,13 +348,16 @@ export const conflictFiles = (
   }
 
   // the status the rows show is against the current side - what the 2-way diff
-  // shows - rather than against git's attempted merge
+  // shows - rather than against git's attempted merge. Renames are followed,
+  // so a file the incoming side moved reads as renamed rather than added; that
+  // takes the whole diff, since a pathspec of only the new paths would hide
+  // the old ones renames are detected from
   const statuses = new Map(
     nonEmptyLines(
-      run(repo, "diff", "--name-status", "--no-renames", refs.current, ...resolutionArgs, "--", ...kinds.keys()),
+      run(repo, "diff", "--name-status", "-M", ...againstResolution(refs, refs.current)),
     ).map((line) => {
-      const [status = "M", path = ""] = line.split("\t");
-      return [path, status.slice(0, 1)] as const;
+      const [status = "M", ...paths] = line.split("\t");
+      return [paths.at(-1) ?? "", status.slice(0, 1)] as const;
     }),
   );
 

@@ -19,8 +19,18 @@ const threeWayKey = [
   ["removed", "an ancestor line the other side removed"],
 ] as const;
 
+/** a side that had the file at another path says where - the file was
+    moved, and the pane shows it from there */
+const MovedFrom = ({ path }: { path: string | undefined }) =>
+  path === undefined ? null : (
+    <span class="tw-moved" title={`on this side the file is at ${path}`}>
+      at <code>{path}</code>
+    </span>
+  );
+
 /** the three panes' headings and the key to their colours */
-const ThreeWayHead = () => {
+const ThreeWayHead = ({ path }: { path: string }) => {
+  const side = sides[path];
   if (conflict === undefined) {
     return null;
   }
@@ -28,13 +38,15 @@ const ThreeWayHead = () => {
     <>
       <div class="three-way-head">
         <span title={conflict.current.detail}>
-          <strong>Current</strong> <code>{conflict.current.label}</code>
+          <strong>Current</strong> <code>{conflict.current.label}</code>{" "}
+          <MovedFrom path={side?.currentPath} />
         </span>
         <span>
           <strong>Resolution</strong>
         </span>
         <span title={conflict.incoming.detail}>
-          <strong>Incoming</strong> <code>{conflict.incoming.label}</code>
+          <strong>Incoming</strong> <code>{conflict.incoming.label}</code>{" "}
+          <MovedFrom path={side?.incomingPath} />
         </span>
       </div>
       <p class="three-way-key">
@@ -116,7 +128,7 @@ export const MonacoDiff = ({
 
   return (
     <>
-      {threeWay && <ThreeWayHead />}
+      {threeWay && <ThreeWayHead path={path} />}
       <div class="diff-monaco" ref={hostRef} />
       <div class="editor-bar">
         <span class="hint">

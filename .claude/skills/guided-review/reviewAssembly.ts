@@ -9,7 +9,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type ConflictRefs, conflictFiles } from "./conflict.ts";
+import { type ConflictRefs, conflictFiles, pathOnSide } from "./conflict.ts";
 import { imageMimeOf, isImagePath } from "./src/imagePaths.ts";
 import {
   type ConflictFileKind,
@@ -19,6 +19,7 @@ import {
   type ReviewMeta,
   type ReviewPayload,
   type ReviewShell,
+  type Side,
 } from "./src/ReviewPayload.ts";
 
 export type Mode = "commit" | "conflict" | "pr" | "worktree";
@@ -142,21 +143,25 @@ const imageVersionSources = (
 
   if (options.mode === "conflict") {
     const refs = conflictRefsOf(options);
+    const onSide =
+      (side: "current" | "incoming" | "ancestor") =>
+      (path: string): Buffer | undefined =>
+        atRef(refs[side])(pathOnSide(repo, refs, side, path));
     sources.push(
       {
         label: "ancestor",
         description: `the common ancestor (${refs.ancestor.slice(0, 9)})`,
-        bytesOf: atRef(refs.ancestor),
+        bytesOf: onSide("ancestor"),
       },
       {
         label: "current",
         description: `${refs.info.current.label} - ${refs.info.current.detail}`,
-        bytesOf: atRef(refs.current),
+        bytesOf: onSide("current"),
       },
       {
         label: "incoming",
         description: `${refs.info.incoming.label} - ${refs.info.incoming.detail}`,
-        bytesOf: atRef(refs.incoming),
+        bytesOf: onSide("incoming"),
       },
       {
         label: "resolution",
@@ -307,9 +312,12 @@ const diffFor = (repo: string, options: ReviewOptions, path: string, status: str
       // worktree mode diffs an untracked file
       return git(repo, "diff", "--no-index", "--", "/dev/null", path);
     }
+    // a file moved on the incoming side is at its old path on the current one,
+    // and the rename is only found with both paths in the pathspec
+    const paths = [...new Set([pathOnSide(repo, refs, "current", path), path])];
     return refs.resolution === "worktree" ?
-        git(repo, "diff", refs.current, "--", path)
-      : git(repo, "diff", refs.current, refs.resolution, "--", path);
+        git(repo, "diff", "-M", refs.current, "--", ...paths)
+      : git(repo, "diff", "-M", refs.current, refs.resolution, "--", ...paths);
   }
   // worktree: untracked files have no index entry, so diff them against nothing
   if (status.startsWith("A") && git(repo, "ls-files", "--", path).trim() === "") {
@@ -323,14 +331,18 @@ const sidesFor = (
   repo: string,
   options: ReviewOptions,
   path: string,
-): { before: string; after: string; incoming?: string; ancestor?: string } => {
+): Pick<Side, "before" | "after" | "incoming" | "ancestor" | "currentPath" | "incomingPath"> => {
   if (options.mode === "conflict") {
     const refs = conflictRefsOf(options);
+    const currentPath = pathOnSide(repo, refs, "current", path);
+    const incomingPath = pathOnSide(repo, refs, "incoming", path);
     return {
-      before: gitShow(repo, `${refs.current}:${path}`),
+      before: gitShow(repo, `${refs.current}:${currentPath}`),
       after: resolutionOf(repo, refs, path),
-      incoming: gitShow(repo, `${refs.incoming}:${path}`),
-      ancestor: gitShow(repo, `${refs.ancestor}:${path}`),
+      incoming: gitShow(repo, `${refs.incoming}:${incomingPath}`),
+      ancestor: gitShow(repo, `${refs.ancestor}:${pathOnSide(repo, refs, "ancestor", path)}`),
+      ...(currentPath === path ? {} : { currentPath }),
+      ...(incomingPath === path ? {} : { incomingPath }),
     };
   }
   if (options.mode === "commit") {
