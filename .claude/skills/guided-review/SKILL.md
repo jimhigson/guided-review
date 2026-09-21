@@ -38,7 +38,7 @@ in the middle:
 | `src/` | the page itself — a preact app in tsx: palette, layout, contents sidebar, diff rendering, the image compare viewer, notes, checkboxes |
 | `buildPage.ts` | bundles `src/` to the one script and one stylesheet `build.ts` inlines |
 | `serve.ts` | serves the built page — how a review is normally delivered; its editors become editable and save back to the working tree |
-| `awaitNotes.ts` | prints each reviewer note as it's written, for as long as it runs - watch it with a persistent Monitor so you come back and act on it while they are still reading |
+| `awaitNotes.ts` | tells you each reviewer note as it's written - streaming, or `--once` per note, however your host can best be woken (see "Keeping the notes channel open") - so you act on it while they are still reading |
 | `ackNote.ts` | confirms you've seen a note, before you have an answer for it - turns "sent, waiting for an agent" into "the agent is on it" honestly |
 | `reply.ts` | answers a note in its own thread — what you did, or the one question you need answered |
 
@@ -549,29 +549,117 @@ the thread and again in chat, isn't thorough, it's just confusing.
 Say what you did in one line, not a paragraph — the note box is small and they
 are mid-review.
 
-Three ways notes reach you, in order of usefulness:
+Notes reach you three ways:
 
-```bash
-# prints each new note as it's written, for as long as this runs - never exits on its own
-node .claude/skills/guided-review/awaitNotes.ts --notes <store>/notes.json
-```
-
-- Watch it with a **persistent Monitor**, not a one-shot backgrounded command:
-  a bounded wait that exits after one note (or a timeout) depends on you
-  remembering to re-arm it every time it returns, and that's exactly the
-  discipline that quietly lapses over a long review. A persistent Monitor
-  emits one notification per note for as long as it's armed, with nothing to
-  re-arm — start it right after `serve.ts`, act on each note as its
-  notification arrives, and only `TaskStop` it once the review is done.
+- **A watch on `notes.json`**: `awaitNotes.ts`, run the way your host
+  supports best. See "Keeping the notes channel open" below. This is the one
+  that matters, because it's the only way notes reach you mid-review.
 - Every note also prints live in the server's own output:
   `note <path>:<line> <text>`.
 - "Send notes to agent" in the header prints the lot between
   `=== N review note(s) handed off ===` markers and rewrites
-  `<store>/notes.md` — the reviewer's "I'm done, over to you" signal. Tell
-  them it is there.
+  `<store>/notes.md`. That's the reviewer's "I'm done, over to you" signal.
+  Tell them it's there.
 
 If a note is ambiguous, ask about that one note rather than stopping the
 review; the page keeps working while you talk.
+
+### Keeping the notes channel open
+
+A note nobody reads is worse than no note: the reviewer thinks they've been
+heard. The watch has to bring you back each time a note is written, for the
+whole review. How to arrange that depends on what your host can do, and
+hosts differ a lot. `awaitNotes.ts` has two modes to cover them:
+
+```bash
+# streams each new note as it's written, and never exits on its own
+node .claude/skills/guided-review/awaitNotes.ts --notes <store>/notes.json
+# waits for new notes, prints them and exits - re-run it after every one
+node .claude/skills/guided-review/awaitNotes.ts --notes <store>/notes.json --once [--timeout <seconds>]
+```
+
+`--once` loses nothing between runs. What has been reported is kept in
+`<store>/awaited.json`, so a note written while you were busy is still new
+to the next `--once`, which returns it straight away. Relaunching is always
+safe. Don't delete or hand-edit that file mid-review, or the next wait will
+treat everything already there as seen.
+
+**Work out which category your host is in, and use the most reliable one it
+supports.** The hosts named below come from their docs and changelogs as of
+September 2026. That will date quickly: these tools gain features every few
+weeks. **If your host now has a more reliable way to be woken than the
+category listed for it here** (a streaming watch where only exit
+notifications used to exist, exit notifications where there were none, a
+built-in file watch, a push channel), **use that instead.** Equally, if the
+listed way doesn't work in your session (the tool is missing or disabled, or
+a wake never arrives), drop to the next category down rather than trusting
+the list.
+
+**1. A streaming watch that wakes you on each line.** Claude Code's
+interactive CLI, with its Monitor tool. Run the streaming mode under Monitor
+right after `serve.ts`, and act on each note as its event arrives. A Monitor
+watch can end at a deadline. When it does, start it again at once: nothing is
+missed, because the restart picks up from `awaited.json`. Monitor isn't
+available everywhere (for example with some providers, or with nonessential
+traffic disabled). Without it, use category 2.
+
+**2. A background command whose exit wakes you.** Claude Code
+(`run_in_background`), Cursor (the IDE agent and `cursor-agent`), GitHub
+Copilot CLI, GitHub Copilot's agent mode in VS Code (background-terminal
+notifications, on by default since VS Code 1.116), opencode v2 (a
+`background: true` shell call), and Gemini CLI, but only with
+`tools.shell.backgroundCompletionBehavior` set to `"inject"` (its default,
+`silent`, wakes nothing).
+
+- Run `--once` as a background command. It returns when a note arrives, and
+  that exit is what brings you back. Handle the note (`ackNote.ts`, then the
+  edit and `reply.ts`), then **relaunch the background `--once` straight
+  away**.
+- These wakes aren't perfectly reliable: some hosts occasionally drop or
+  delay one. VS Code's may only land on your next turn rather than starting
+  one when the chat is idle. So also check at the end of every response that
+  a `--once` is still waiting, and relaunch it if not. That costs nothing,
+  thanks to `awaited.json`.
+- The streaming mode is no use here. It never exits, so it never wakes you.
+
+**3. Only blocking commands.** OpenAI Codex (CLI, IDE extension and app),
+Zed's agent, Goose, Cline, Windsurf/Cascade, Amp, and Gemini CLI on its
+default settings. Nothing wakes you between turns. You only see output from a
+command you are waiting on.
+
+- Run `--once --timeout <seconds>` in the foreground, with the timeout under
+  whatever your host kills commands at. Some limits: Gemini CLI kills a
+  command after 300 s *without output* (and `--once` prints nothing while it
+  waits), so use `--timeout 240` or less there. opencode v1 defaults to 2
+  minutes. Codex polls a running command for at most 5 minutes at a time.
+  Where the limit isn't known, 240 is a safe choice.
+- On "no new notes", run it again. On notes, handle them and run it again.
+  This holds your turn open for the length of the review, so you can't
+  chat meanwhile. Say so up front, and stop when the reviewer says they're
+  done, or when they interrupt you to talk.
+- **Start the next wait as the last thing you do in every response**,
+  including replies to chat that has nothing to do with the notes. A
+  response that ends without one is where the review gets lost.
+- Codex can instead run the wait from a Stop hook that blocks with the notes
+  as its reason, which continues the session when notes arrive. Only set this
+  up if the reviewer wants it, since it changes their Codex config.
+
+**4. Nothing between turns.** Cloud agents (GitHub Copilot's coding agent,
+Codex cloud) and Aider, which runs no commands on its own. A cloud agent
+can't serve to the reviewer's machine anyway: use non-reachable mode
+(below). Otherwise the notes arrive only when the reviewer hands them over,
+with "Send notes to agent" and a chat message, or by pasting `notes.md`. Say
+that plainly at the start, so they don't wait on a reply that isn't coming.
+
+Whatever the category:
+
+- **Run `serve.ts` in a background terminal of its own**, never the one you
+  wait in, so a wait can't block it or be killed along with it.
+- **Tell the reviewer, in one line, how their notes reach you**: live, between
+  turns, or only when handed over. If a note seems to go unanswered, typing
+  anything in the chat brings you back to it.
+- When the review is done, stop the watch (a streaming watch, or a background
+  `--once` still waiting) and the server.
 
 Both are Monaco-only, and **Monaco comes from `serve.ts` itself** — it serves
 its own `monaco-editor` install at `/vs` and refuses to start without it, so a
