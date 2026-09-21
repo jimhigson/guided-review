@@ -6,7 +6,7 @@ import { imageStatsStore, mechanicalNote } from "../imageDiff/imageStats.ts";
 import { editors, editorStore } from "../editor.ts";
 import { firstChangedLine } from "../firstChangedLine.ts";
 import { notesStore } from "../notes.ts";
-import { images, links, repoRoot, stats, statusLabel } from "../payload.ts";
+import { conflict, images, links, repoRoot, stats, statusLabel } from "../payload.ts";
 import { type ImageRow, type ReviewFile } from "../ReviewPayload.ts";
 import { registerRow, unregisterRow } from "../rowNodes.ts";
 import { useStore } from "../stores.ts";
@@ -109,6 +109,19 @@ export const Row = ({
         <span class={`chip chip-${file.status}`}>
           {statusLabel[file.status] ?? file.status}
         </span>
+        {conflict?.files[file.path] === "conflicted" && (
+          <span class="chip chip-conflict" title="git could not merge this file on its own">
+            Conflicted
+          </span>
+        )}
+        {conflict?.files[file.path] === "edited" && (
+          <span
+            class="chip chip-edited"
+            title="git merged this file without a conflict (or had nothing to merge) - the resolver changed it anyway"
+          >
+            Edited past merge
+          </span>
+        )}
         <button
           type="button"
           class={`path ${copied ? "copied" : ""}`}

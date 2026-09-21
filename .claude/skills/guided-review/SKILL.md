@@ -1,6 +1,6 @@
 ---
 name: guided-review
-description: Build an ordered, locally-served HTML reading order for a large commit, PR or working tree, grouped by theme, with each file's diff inline in an editable Monaco editor, per-line review notes, and a pan/zoom compare viewer for changed images. Use when a commit/PR is too large to read file-by-file in git-log order and the user wants a guided path through it, or to review changed Playwright screenshot baselines / any image diffs visually (the scripted snapshots-only mode needs no authoring at all).
+description: Build an ordered, locally-served HTML reading order for a large commit, PR, working tree or conflict resolution, grouped by theme, with each file's diff inline in an editable Monaco editor (2-way, or 3-way current | resolution | incoming for a conflict), per-line review notes, and a pan/zoom compare viewer for changed images. Use when a commit/PR is too large to read file-by-file in git-log order and the user wants a guided path through it; to review changed Playwright screenshot baselines / any image diffs visually (the scripted snapshots-only mode needs no authoring at all); and offer it, unasked, straight after you (or another agent) resolve non-trivial merge, rebase, cherry-pick or revert conflicts - before the operation is continued or committed - so the user can check the resolution against both sides.
 ---
 
 # Guided review
@@ -65,7 +65,7 @@ Nothing here is specific to one repo — run it in whichever repo is the working
 directory. "Guided review of PR 34", "guided review #23", a PR url, a SHA, "my
 branch" and "what I've got uncommitted" are all normal ways to be asked.
 
-Three supported entry points — decide which the user means before doing
+Four supported entry points — decide which the user means before doing
 anything else, since it changes every git command downstream:
 
 - **A single commit.** You have a SHA (or the user said "commit
@@ -82,6 +82,12 @@ anything else, since it changes every git command downstream:
   empty and everything lives in `git status`. The diff is
   `git diff <base>` for tracked files plus the whole content of each
   untracked file. There is no GitHub page to link to — see step 3.
+- **A conflict resolution.** A merge, rebase, cherry-pick or revert is paused
+  with its conflicts resolved (staged or not), or the user names a finished
+  merge commit. Build with `--mode conflict` (plus `--ref <merge>` for a
+  finished one). See "Conflict reviews" below. It works out current, incoming
+  and ancestor for you, from `MERGE_HEAD`/`REBASE_HEAD`/`CHERRY_PICK_HEAD`/`REVERT_HEAD`
+  or the merge's parents.
 
 Identify which, and resolve it to concrete refs:
 
@@ -106,6 +112,54 @@ Starting from a SHA, it is worth checking whether a PR covers it
 (`gh pr list --search "<sha or distinctive title words>" --state all --json number,title,url`):
 if one does, review the PR rather than the commit, since that is what a
 reviewer is being asked about.
+
+### Conflict reviews
+
+**Offer one after resolving conflicts.** When you (or an agent you ran) have
+just resolved merge/rebase/cherry-pick/revert conflicts, and the resolution
+was non-trivial, offer a conflict review *before* `--continue` or committing.
+Offer, don't impose: one line, eg "the resolution touched 4 files; want a
+3-way review before I continue the rebase?". Non-trivial means anything past:
+whitespace-only conflicts, a regenerated lockfile, or taking one side
+wholesale where that was clearly the intent. The moment matters: while the
+operation is paused, git still holds every side, and the review can still
+change the resolution. A rebase stops once per conflicting commit, and each
+stop is its own review.
+
+What goes in it comes from git, not from you:
+
+```bash
+.claude/skills/guided-review/changedFiles.sh conflict          # paused operation
+.claude/skills/guided-review/changedFiles.sh conflict <merge>  # finished merge commit
+```
+
+It re-runs git's merge with `git merge-tree` (git 2.40+) and lists every file
+the resolution differs from git's own attempt at: first the files git could
+not merge (**conflicted**), then any the resolver changed although git merged
+them cleanly (**edited past merge**, eg a call site fixed up after a rename).
+Files git merged cleanly and nobody touched are left out. They were never a
+resolver's decision. Which kind each file is goes to stderr and onto the page
+as a chip on the row. Staging the resolution doesn't lose any of this.
+
+The page then offers a **3-way** view beside inline and side-by-side, and
+opens in it: current | resolution | incoming, lined up. The resolution pane is
+the editable one, and notes live there. The ancestor never gets a pane of its
+own, but it drives the colours, which carry the review:
+
+- resolution lines **from current** (teal) or **from incoming** (blue);
+- the **resolver's own** lines, in neither side (amber) - read every one;
+- side lines left out of the resolution: **dropped** (red) where they were
+  that side's own change - lost work unless it was meant - or faint where
+  they were ancestor lines the other side removed anyway.
+
+The 2-way views diff current → resolution. In the notes, say which side each
+decision favoured and why, and flag anything the resolver invented.
+
+To try the whole flow without a real conflict to hand,
+`fixtures/conflictRepo.sh <new dir> [merge|rebase]` builds a throwaway repo
+paused mid-merge (or mid-rebase) with a resolution already written. Its header
+comment lists what the resolution does to each file, so you know what the page
+should show.
 
 ### PR stacks
 
@@ -169,6 +223,7 @@ belongs to.
 .claude/skills/guided-review/changedFiles.sh worktree
 .claude/skills/guided-review/changedFiles.sh commit <sha>
 .claude/skills/guided-review/changedFiles.sh pr origin/<base> origin/<head>
+.claude/skills/guided-review/changedFiles.sh conflict [<merge commit>]
 ```
 
 It prints `STATUS<TAB>PATH`, uses the three-dot range for PR mode (diffing
@@ -327,6 +382,7 @@ node .claude/skills/guided-review/build.ts \
   --mode worktree
   # a commit:  --mode commit --ref <sha>
   # a pr:      --mode pr --base <base> --head <head> --pr <n>   (refs from resolvePr.sh)
+  # a conflict resolution:  --mode conflict   (--ref <merge> for a finished merge)
 ```
 
 ### Snapshots-only reviews are fully scripted
@@ -642,7 +698,7 @@ diffs stay in `ui-monospace`.
 
 - Sticky header: live progress bar and checked/total count, the Contents
   toggle, open-everything, close-everything, clear-ticks, and a **Diffs
-  select** (inline / side by side).
+  select** (inline / side by side, plus 3-way on a conflict review only).
 - **A stack bar above the header row**, only when the shell knows a 2+-entry
   stack: every PR of the chain in order, the active review highlighted. A
   sibling the page carries is a button that **switches the whole page to that
@@ -746,6 +802,21 @@ diffs stay in `ui-monospace`.
   `renderSideBySide: true` alone does nothing in a pane this narrow, because
   monaco's `useInlineViewWhenSpaceIsLimited` drops back to the inline view
   below ~900px on its own. Both go in `sideBySideOptions`.
+- **3-way is a different surface, not an option.** On a conflict review
+  (`payload.conflict`, and `incoming`/`ancestor` on each side),
+  `createDiffEditor` builds three plain editors in the host instead of a diff
+  editor. Switching between 2-way and 3-way disposes one surface and builds
+  the other **over the same models**, so unsaved edits and the save sha
+  survive the switch. Each pane is full height, so the page scrolls all three
+  together and there is no scroll syncing at all: `threeWayLayout.ts` lines
+  them up. It matches each side against the resolution (`lineDiff.ts`, Myers),
+  treats lines both sides carry into the resolution as sync points, and pads
+  every stretch between two sync points to the tallest pane with hatched view
+  zones. Note threads count towards the resolution's stretch, so the sides are
+  padded to match them too (`noteZonesChanged`). Folding and word wrap are off
+  in all three panes, because either would move lines out from under the
+  others. The choice of view is remembered separately for conflict reviews,
+  where it defaults to 3-way.
 - **Monaco is a dependency, not an enhancement.** It is served only from the
   review server's own `monaco-editor` install at `/vs` (which is why served
   reviews work fully offline); `serve.ts` refuses to start without it. There

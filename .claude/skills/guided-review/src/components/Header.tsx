@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
-import { diffViewStore, setDiffView } from "../diffView.ts";
+import { diffViewStore, setDiffView, threeWayAvailable } from "../diffView.ts";
 import { editors, editorStore, type EditorId, setEditor } from "../editor.ts";
 import faviconUrl from "../favicon.png";
 import { notesAsMarkdown, notesStore } from "../notes.ts";
@@ -128,6 +128,19 @@ export const Header = ({ state }: HeaderProps) => {
             >
               {""}
             </button>
+            {/* only a conflict review has a third side to show */}
+            {threeWayAvailable() && (
+              <button
+                type="button"
+                class="control segment"
+                aria-pressed={diffView === "threeWay"}
+                aria-label="3-way: current, resolution, incoming"
+                title="3-way: current | resolution | incoming"
+                onClick={() => setDiffView("threeWay")}
+              >
+                {"\uf465"}
+              </button>
+            )}
           </div>
           <button class="control" type="button" onClick={copyNotes}>
             {copyLabel}

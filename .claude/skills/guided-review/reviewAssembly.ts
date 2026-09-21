@@ -9,8 +9,10 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { type ConflictRefs, conflictFiles } from "./conflict.ts";
 import { imageMimeOf, isImagePath } from "./src/imagePaths.ts";
 import {
+  type ConflictFileKind,
   type ImageRow,
   type ImageVersion,
   type ReviewGroup,
@@ -19,7 +21,7 @@ import {
   type ReviewShell,
 } from "./src/ReviewPayload.ts";
 
-export type Mode = "commit" | "pr" | "worktree";
+export type Mode = "commit" | "conflict" | "pr" | "worktree";
 
 /** what collecting one review needs to know; build.ts's CLI maps onto this */
 export type ReviewOptions = {
@@ -32,6 +34,25 @@ export type ReviewOptions = {
   id?: string;
   maxSideLines: number;
   maxImages: number;
+  /** conflict mode's resolved refs - see conflict.ts */
+  conflict?: ConflictRefs;
+};
+
+const conflictRefsOf = (options: ReviewOptions): ConflictRefs => {
+  if (options.conflict === undefined) {
+    throw new Error("conflict mode needs its refs resolved first (resolveConflict)");
+  }
+  return options.conflict;
+};
+
+/** the resolution's content: the working tree while the operation is paused,
+    or the finished merge commit's */
+const resolutionOf = (repo: string, refs: ConflictRefs, path: string): string => {
+  if (refs.resolution !== "worktree") {
+    return gitShow(repo, `${refs.resolution}:${path}`);
+  }
+  const onDisk = join(repo, path);
+  return existsSync(onDisk) && statSync(onDisk).isFile() ? readFileSync(onDisk, "utf8") : "";
 };
 
 export const git = (repo: string, ...args: string[]): string => {
@@ -117,6 +138,39 @@ const imageVersionSources = (
       description: `the latest release tag (${productionTag})`,
       bytesOf: atRef(productionTag),
     });
+  }
+
+  if (options.mode === "conflict") {
+    const refs = conflictRefsOf(options);
+    sources.push(
+      {
+        label: "ancestor",
+        description: `the common ancestor (${refs.ancestor.slice(0, 9)})`,
+        bytesOf: atRef(refs.ancestor),
+      },
+      {
+        label: "current",
+        description: `${refs.info.current.label} - ${refs.info.current.detail}`,
+        bytesOf: atRef(refs.current),
+      },
+      {
+        label: "incoming",
+        description: `${refs.info.incoming.label} - ${refs.info.incoming.detail}`,
+        bytesOf: atRef(refs.incoming),
+      },
+      {
+        label: "resolution",
+        description: refs.resolution === "worktree" ? "the resolution on disk" : "the merge commit",
+        bytesOf(path) {
+          if (refs.resolution !== "worktree") {
+            return gitShowBytes(repo, `${refs.resolution}:${path}`);
+          }
+          const onDisk = join(repo, path);
+          return existsSync(onDisk) && statSync(onDisk).isFile() ? readFileSync(onDisk) : undefined;
+        },
+      },
+    );
+    return { sources, fromLabel: "current", toLabel: "resolution" };
   }
 
   if (options.mode === "pr") {
@@ -228,6 +282,9 @@ const imageRowFor = (
     served page's live "did this change" check stays anchored to it even as
     the ref it came from (eg a branch) moves on */
 const resolveBaseSha = (repo: string, options: ReviewOptions): string => {
+  if (options.mode === "conflict") {
+    return conflictRefsOf(options).current;
+  }
   const ref =
     options.mode === "commit" ? `${options.ref}^`
     : options.mode === "pr" ? (options.base ?? "")
@@ -242,6 +299,13 @@ const diffFor = (repo: string, options: ReviewOptions, path: string, status: str
   if (options.mode === "pr") {
     return git(repo, "diff", `${options.base}...${options.head}`, "--", path);
   }
+  if (options.mode === "conflict") {
+    // measured from the current side, as the 2-way view shows it
+    const refs = conflictRefsOf(options);
+    return refs.resolution === "worktree" ?
+        git(repo, "diff", refs.current, "--", path)
+      : git(repo, "diff", refs.current, refs.resolution, "--", path);
+  }
   // worktree: untracked files have no index entry, so diff them against nothing
   if (status.startsWith("A") && git(repo, "ls-files", "--", path).trim() === "") {
     return git(repo, "diff", "--no-index", "--", "/dev/null", path);
@@ -254,7 +318,16 @@ const sidesFor = (
   repo: string,
   options: ReviewOptions,
   path: string,
-): { before: string; after: string } => {
+): { before: string; after: string; incoming?: string; ancestor?: string } => {
+  if (options.mode === "conflict") {
+    const refs = conflictRefsOf(options);
+    return {
+      before: gitShow(repo, `${refs.current}:${path}`),
+      after: resolutionOf(repo, refs, path),
+      incoming: gitShow(repo, `${refs.incoming}:${path}`),
+      ancestor: gitShow(repo, `${refs.ancestor}:${path}`),
+    };
+  }
   if (options.mode === "commit") {
     return {
       before: gitShow(repo, `${options.ref}^:${path}`),
@@ -295,8 +368,14 @@ export const reviewId = (repo: string, options: ReviewOptions): string => {
     return options.id;
   }
 
+  const conflictScope = (): string => {
+    const refs = conflictRefsOf(options);
+    // a rebase stops once per conflicting commit, and each stop is its own review
+    return `conflict-${refs.incoming.slice(0, 9)}-${refs.current.slice(0, 9)}`;
+  };
   const scope =
-    options.mode === "commit" ? `commit-${options.ref}`
+    options.mode === "conflict" ? conflictScope()
+    : options.mode === "commit" ? `commit-${options.ref}`
     : options.mode === "pr" ?
       options.pr !== undefined ?
         `pr-${options.pr}`
@@ -319,6 +398,14 @@ export const webUrl = (repo: string, options: ReviewOptions): string | undefined
   if (options.github === "none" || options.mode === "worktree") {
     return undefined;
   }
+  // a paused operation has nothing on the forge yet; a finished merge is a commit
+  const mergeCommit =
+    options.mode === "conflict" && options.conflict?.resolution !== "worktree" ?
+      options.conflict?.resolution
+    : undefined;
+  if (options.mode === "conflict" && mergeCommit === undefined) {
+    return undefined;
+  }
   if (options.github !== undefined) {
     return options.github;
   }
@@ -336,8 +423,8 @@ export const webUrl = (repo: string, options: ReviewOptions): string | undefined
   if (options.pr !== undefined) {
     return `${base}/pull/${options.pr}/files`;
   }
-  if (options.mode === "commit") {
-    return `${base}/commit/${options.ref}`;
+  if (options.mode === "commit" || mergeCommit !== undefined) {
+    return `${base}/commit/${mergeCommit ?? options.ref}`;
   }
   return `${base}/compare/${options.base}...${options.head}`;
 };
@@ -437,6 +524,12 @@ export const collectReview = (
   let imageBytes = 0;
   const forge = webUrl(repo, options);
   const imageSources = imageVersionSources(repo, options);
+  const conflictKinds: Record<string, ConflictFileKind> =
+    options.mode === "conflict" ?
+      Object.fromEntries(
+        conflictFiles(repo, conflictRefsOf(options)).map(({ path, kind }) => [path, kind]),
+      )
+    : {};
 
   for (const group of groups) {
     for (const item of group.items) {
@@ -479,8 +572,7 @@ export const collectReview = (
       // to read the file in the tree instead
       const side = sidesFor(repo, options, path);
       const longest = Math.max(
-        side.before.split("\n").length - 1,
-        side.after.split("\n").length - 1,
+        ...[side.before, side.after, side.incoming ?? ""].map((text) => text.split("\n").length - 1),
       );
       if (longest <= options.maxSideLines) {
         // the hash lets a served page refuse to save over a file that moved on
@@ -504,6 +596,9 @@ export const collectReview = (
       links,
       images,
       repoRoot: resolve(repo),
+      ...(options.conflict === undefined ?
+        {}
+      : { conflict: { ...options.conflict.info, files: conflictKinds } }),
     },
     imageBlocks,
     forge,

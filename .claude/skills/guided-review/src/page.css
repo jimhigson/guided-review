@@ -802,6 +802,9 @@ button.caret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2
 .chip-M { color: var(--mod); background: var(--mod-bg); }
 .chip-D { color: var(--del); background: var(--del-bg); }
 .chip-R { color: var(--accent); background: var(--accent-soft); }
+/* a conflict review's second chip: why the file is in it at all */
+.chip-conflict { color: var(--del); background: var(--del-bg); }
+.chip-edited { color: var(--mod); background: var(--mod-bg); }
 
 /* the contents tree has no room for a full word, so the chip shrinks to the
    status letter plus a solid block for how much reading it costs - same font
@@ -958,6 +961,89 @@ button.diff-toggle:focus-visible { outline: 2px solid var(--accent); outline-off
 }
 
 .diff-monaco .monaco-editor .diffOverview { display: none; }
+
+/* ---- 3-way: current | resolution | incoming ------------------------------
+   three plain editors in one host, each as tall as its content, so the page
+   scrolls them together; createDiffEditor pads them level. The side colours
+   are VS Code's own merge editor's (merge.currentHeaderBackground /
+   merge.incomingHeaderBackground), the same in both of its themes */
+:root {
+  --tw-current: #40c8ae;
+  --tw-current-bg: rgb(64 200 174 / 0.16);
+  --tw-incoming: #40a6ff;
+  --tw-incoming-bg: rgb(64 166 255 / 0.16);
+}
+
+/* flex, not grid: a grid row sizes itself to the editors' first layout
+   rather than to the host's fitted height, and the panes overflow it */
+.diff-monaco.three-way { display: flex; }
+
+.three-way-pane { flex: 1 1 0; min-width: 0; }
+.three-way-pane + .three-way-pane { border-left: 1px solid var(--rule); }
+
+.three-way-head {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.three-way-head > span {
+  padding: 0.3rem 0.5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-top: 3px solid var(--rule);
+}
+
+.three-way-head > span:nth-child(1) { border-top-color: var(--tw-current); }
+.three-way-head > span:nth-child(3) { border-top-color: var(--tw-incoming); }
+.three-way-head strong { color: var(--ink); font-weight: 600; }
+.three-way-head code { font-family: var(--mono); font-size: 0.85rem; }
+
+.three-way-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+  margin: 0.2rem 0 0;
+  padding: 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.three-way-key > span { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+.tw-swatch {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-left: 3px solid transparent;
+  flex: none;
+}
+
+/* space standing in for lines another pane has here - hatched, as VS Code
+   draws the same thing */
+.three-way-pad {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 5px,
+    var(--rule) 5px 6px
+  );
+}
+
+/* each mark is a tint across the line and a solid strip beside its number */
+.tw-resolver { background: var(--mod-bg); border-color: var(--mod); }
+.tw-dropped { background: var(--del-bg); border-color: var(--del); }
+.tw-fromIncoming { background: var(--tw-incoming-bg); border-color: var(--tw-incoming); }
+.tw-fromCurrent { background: var(--tw-current-bg); border-color: var(--tw-current); }
+.tw-removed { background: var(--accent-soft); border-color: var(--ink-faint); }
+
+.tw-edge { margin-left: 3px; width: 3px !important; }
+.tw-edge-resolver { background: var(--mod); }
+.tw-edge-dropped { background: var(--del); }
+.tw-edge-fromIncoming { background: var(--tw-incoming); }
+.tw-edge-fromCurrent { background: var(--tw-current); }
+.tw-edge-removed { background: var(--ink-faint); }
 
 /* a dependency failing is shown as the failure it is, in the diff's place */
 .diff-error {

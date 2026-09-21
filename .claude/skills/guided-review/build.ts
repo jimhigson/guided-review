@@ -13,6 +13,8 @@
  *   node build.ts --groups review.json --out review.html --mode pr \
  *                 --base origin/main --head origin/my-branch \
  *                 --github https://github.com/owner/repo/pull/12/files
+ *   node build.ts --groups review.json --out review.html --mode conflict
+ *                 (a paused merge/rebase/cherry-pick/revert; --ref <merge> for a finished merge)
  *
  * The groups json is `{"meta": {...}, "groups": [{title, blurb, items: [{path,
  * status, note}]}]}`. meta takes title, headerTitle, eyebrow, lede, facts (a
@@ -24,6 +26,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
 import { buildPage } from "./buildPage.ts";
+import { resolveConflict } from "./conflict.ts";
 import {
   type AuthoredGroups,
   collectReview,
@@ -48,8 +51,8 @@ type Options = ReviewOptions & {
 const usage = (): never => {
   console.log(
     [
-      "build.ts --groups <authored.json> --out <review.html> --mode worktree|commit|pr",
-      "  --ref <sha>                commit mode: what to show",
+      "build.ts --groups <authored.json> --out <review.html> --mode worktree|commit|pr|conflict",
+      "  --ref <sha>                commit mode: what to show; conflict mode: a finished merge commit",
       "  --base <ref> --head <ref>  pr mode: what to diff",
       "  --pr <number>              per-file links point at its Files changed tab",
       "  --stack <json>             resolveStack.ts output; the bar shows the stack when 2+ PRs",
@@ -90,8 +93,8 @@ const parseOptions = (): Options => {
   if (groups === undefined || out === undefined || mode === undefined) {
     throw new Error("--groups, --out and --mode are all required");
   }
-  if (mode !== "worktree" && mode !== "commit" && mode !== "pr") {
-    throw new Error(`--mode must be worktree, commit or pr, not ${mode}`);
+  if (mode !== "worktree" && mode !== "commit" && mode !== "pr" && mode !== "conflict") {
+    throw new Error(`--mode must be worktree, commit, pr or conflict, not ${mode}`);
   }
   if (mode === "commit" && values.ref === undefined) {
     throw new Error("commit mode needs --ref");
@@ -160,6 +163,9 @@ const shellFor = (
 const main = async (): Promise<void> => {
   const options = parseOptions();
   const repo = options.repo ?? git(process.cwd(), "rev-parse", "--show-toplevel").trim();
+  if (options.mode === "conflict") {
+    options.conflict = resolveConflict(repo, options.ref);
+  }
 
   const authored = JSON.parse(readFileSync(options.groups, "utf8")) as AuthoredGroups;
   const collected = collectReview(
@@ -194,6 +200,13 @@ const main = async (): Promise<void> => {
   }
   console.log(`wrote ${options.out}  (${Math.round(Buffer.byteLength(html) / 1_024)} KiB)`);
   console.log(`links   ${forge ?? "none (nothing to link to)"}`);
+  if (payload.conflict !== undefined) {
+    const kinds = Object.values(payload.conflict.files);
+    console.log(
+      `conflict ${payload.conflict.operation}: ${payload.conflict.current.label} ← ${payload.conflict.incoming.label}` +
+        `  (${kinds.filter((kind) => kind === "conflicted").length} conflicted, ${kinds.filter((kind) => kind === "edited").length} edited beyond git's merge)`,
+    );
+  }
   if (shell.reviews.length > 1) {
     console.log(
       `stack   ${shell.reviews.map((review) => (review.number === shell.current ? `[#${review.number}]` : `#${review.number}`)).join(" → ")}`,

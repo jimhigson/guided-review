@@ -6,12 +6,14 @@
 #   changedFiles.sh worktree
 #   changedFiles.sh commit <sha>
 #   changedFiles.sh pr <base-ref> <head-ref>      # eg origin/main origin/my-branch
+#   changedFiles.sh conflict [<merge-commit>]     # a paused merge/rebase/cherry-pick/revert,
+#                                                 # or a finished merge commit
 #
 # STATUS is git's own: A (added/untracked) M D R###. Feed the output straight
 # into the groups json you author for build.ts.
 set -euo pipefail
 
-mode="${1:?usage: changedFiles.sh worktree|commit <sha>|pr <base> <head>}"
+mode="${1:?usage: changedFiles.sh worktree|commit <sha>|pr <base> <head>|conflict [<merge>]}"
 
 binary_extensions='\.(ico|icns|woff2?|ttf|otf|eot|mp3|opus|ogg|wav|m4a|mp4|webm|mov|pdf|zip|gz|br|bin|wasm)$'
 
@@ -33,6 +35,11 @@ case "$mode" in
     head="${3:?pr mode needs a head ref}"
     # three-dot: diff against the merge base, matching github's own view
     git diff --name-status "$base...$head"
+    ;;
+  conflict)
+    # the files git couldn't merge, then any the resolver changed beyond
+    # git's own merge - see conflict.ts
+    node "$(dirname "$0")/conflictFiles.ts" ${2:+--ref "$2"}
     ;;
   *)
     echo "unknown mode: $mode" >&2

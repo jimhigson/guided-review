@@ -22,6 +22,8 @@ export type MonacoDecoration = {
   options: {
     isWholeLine?: boolean;
     className?: string;
+    /** a narrow strip between the line numbers and the text */
+    linesDecorationsClassName?: string;
     glyphMarginClassName?: string;
     glyphMarginHoverMessage?: { value: string };
   };
@@ -53,6 +55,7 @@ export type MonacoTextModel = {
   onDidChangeContent: (listener: () => void) => MonacoDisposable;
   setValue: (value: string) => void;
   getValue: () => string;
+  getLinesContent: () => string[];
   dispose: () => void;
 };
 
@@ -95,6 +98,8 @@ export type MonacoEditorOptions = {
   fontSize: number;
   lineHeight: number;
   scrollbar: { alwaysConsumeMouseWheel: boolean };
+  folding?: boolean;
+  wordWrap?: "off" | "on";
 };
 
 export type MonacoDiffEditor = {

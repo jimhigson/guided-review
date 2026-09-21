@@ -5,8 +5,49 @@ import {
   type DiffEditorControls,
   type EditorStatus,
 } from "../createDiffEditor.tsx";
+import { diffViewStore } from "../diffView.ts";
 import { loadMonaco } from "../monacoLoader.ts";
-import { activeReviewIsEditable, server, sides } from "../payload.ts";
+import { activeReviewIsEditable, conflict, server, sides } from "../payload.ts";
+import { useStore } from "../stores.ts";
+
+/** what each 3-way colour means, in the order they're worth checking */
+const threeWayKey = [
+  ["resolver", "the resolver's own line - in neither side"],
+  ["dropped", "a side's own change, left out of the resolution"],
+  ["fromIncoming", "carried from incoming"],
+  ["fromCurrent", "carried from current"],
+  ["removed", "an ancestor line the other side removed"],
+] as const;
+
+/** the three panes' headings and the key to their colours */
+const ThreeWayHead = () => {
+  if (conflict === undefined) {
+    return null;
+  }
+  return (
+    <>
+      <div class="three-way-head">
+        <span title={conflict.current.detail}>
+          <strong>Current</strong> <code>{conflict.current.label}</code>
+        </span>
+        <span>
+          <strong>Resolution</strong>
+        </span>
+        <span title={conflict.incoming.detail}>
+          <strong>Incoming</strong> <code>{conflict.incoming.label}</code>
+        </span>
+      </div>
+      <p class="three-way-key">
+        {threeWayKey.map(([mark, meaning]) => (
+          <span key={mark}>
+            <span class={`tw-swatch tw-${mark}`} aria-hidden="true" />
+            {meaning}
+          </span>
+        ))}
+      </p>
+    </>
+  );
+};
 
 export type MonacoDiffProps = {
   path: string;
@@ -24,6 +65,8 @@ export const MonacoDiff = ({
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState<EditorStatus>({ kind: "", text: "" });
+  const threeWay =
+    useStore(diffViewStore) === "threeWay" && sides[path]?.incoming !== undefined;
 
   useEffect(() => {
     if (sides[path] === undefined) {
@@ -73,6 +116,7 @@ export const MonacoDiff = ({
 
   return (
     <>
+      {threeWay && <ThreeWayHead />}
       <div class="diff-monaco" ref={hostRef} />
       <div class="editor-bar">
         <span class="hint">

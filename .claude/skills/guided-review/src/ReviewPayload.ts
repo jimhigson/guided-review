@@ -37,6 +37,30 @@ export type Side = {
   after: string;
   /** what the modified side hashed to when the review was built */
   sha: string;
+  /** a conflict review's incoming side - `before` is then the current side
+      and `after` the resolution */
+  incoming?: string;
+  /** a conflict review's common ancestor of current and incoming */
+  ancestor?: string;
+};
+
+/** why a file is in a conflict review: git could not merge it on its own, or
+    it merged cleanly (or wasn't touched) and the resolver changed it anyway */
+export type ConflictFileKind = "conflicted" | "edited";
+
+export type ConflictSideLabel = {
+  /** short, for the pane heading - a branch name or short sha */
+  label: string;
+  /** what the side is, for the heading's tooltip */
+  detail: string;
+};
+
+/** a conflict-resolution review: what was being combined, and how */
+export type ConflictInfo = {
+  operation: string;
+  current: ConflictSideLabel;
+  incoming: ConflictSideLabel;
+  files: Record<string, ConflictFileKind>;
 };
 
 /** one comparable version of an image file */
@@ -78,6 +102,9 @@ export type ReviewPayload = {
   /** absolute path to the repo checkout this review was built from, so a
       file's row can link to a local editor (eg vscode://file/...) */
   repoRoot: string;
+  /** present only for a conflict-resolution review - it is what enables the
+      3-way view */
+  conflict?: ConflictInfo;
 };
 
 /**

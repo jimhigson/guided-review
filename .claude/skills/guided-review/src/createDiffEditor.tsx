@@ -1,6 +1,11 @@
 /* one file's monaco diff editor and everything hung off it: saving back to the
    working tree, and the note zones. Imperative by nature - monaco owns this dom
-   - and reports back through the setters it is given */
+   - and reports back through the setters it is given.
+
+   The models (and so unsaved edits, and the sha a save is checked against)
+   outlive the editing surface: switching between a 2-way and a 3-way view
+   swaps the surface over the same models, rather than rebuilding the file from
+   the content the review was built with. */
 
 import { render } from "preact";
 
@@ -12,12 +17,14 @@ import { type FileFromDisk, liveEditors } from "./liveEditors.ts";
 import {
   type MonacoApi,
   type MonacoCodeEditor,
+  type MonacoDisposable,
   type MonacoTextModel,
   type MonacoViewZone,
 } from "./monacoApi.ts";
 import { languageFor } from "./monacoLoader.ts";
 import { notesFor } from "./notes.ts";
 import { activeReviewIsEditable, reviewId, server, sides } from "./payload.ts";
+import { type LineMark, threeWayLayouter, type Zone } from "./threeWayLayout.ts";
 
 export type EditorStatus = { kind: string; text: string };
 
@@ -41,16 +48,26 @@ const sideBySideOptions = (view: DiffView) => ({
 });
 
 /** the editing surface itself, and what differs about wiring it up: a diff
-    editor for a changed file, a plain one for a new file - nothing else in
-    createDiffEditor below this point needs to know which it got */
+    editor for a changed file, a plain one for a new file, three panes for a
+    conflict - nothing else in createDiffEditor below this point needs to know
+    which it got */
 type EditorHandle = {
+  /** the editor showing the file as it will be saved - the one notes live in */
   modifiedEditor: MonacoCodeEditor;
-  original: MonacoTextModel | undefined;
   layout: () => void;
   dispose: () => void;
+  /** how tall the surface's content is, for sizing the host to fit it */
+  contentHeight: () => number;
   /** wired once fitToContent exists; returns how to stop watching on dispose */
   startSizing: (fitToContent: () => void) => () => void;
+  /** the note zones now in the modified editor - a 3-way view pads its other
+      panes to keep them level with them */
+  noteZonesChanged?: (zones: Zone[]) => void;
 };
+
+type EditorKind = "plain" | "diff" | "threeWay";
+
+const lineHeight = 18;
 
 const buildDiffEditorHandle = (
   monaco: MonacoApi,
@@ -69,7 +86,7 @@ const buildDiffEditorHandle = (
     scrollBeyondLastLine: false,
     renderOverviewRuler: false,
     fontSize: 12,
-    lineHeight: 18,
+    lineHeight,
     // unchanged stretches collapse to a foldable band, which is the whole
     // reason for using an editor over a static patch
     hideUnchangedRegions: {
@@ -84,16 +101,20 @@ const buildDiffEditorHandle = (
 
   return {
     modifiedEditor: editor.getModifiedEditor(),
-    original,
     layout: () => editor.layout(),
     dispose: () => editor.dispose(),
+    contentHeight: () => editor.getModifiedEditor().getContentHeight(),
     startSizing: (fitToContent) => {
-      editor.onDidUpdateDiff(fitToContent);
+      const diffUpdates = editor.onDidUpdateDiff(fitToContent);
       // one choice drives every editor on the page, including the ones already built
-      return diffViewStore.subscribe(() => {
+      const stopFollowing = diffViewStore.subscribe(() => {
         editor.updateOptions(sideBySideOptions(diffViewStore.get()));
         fitToContent();
       });
+      return () => {
+        diffUpdates.dispose();
+        stopFollowing();
+      };
     },
   };
 };
@@ -114,18 +135,145 @@ const buildPlainEditorHandle = (
     scrollBeyondLastLine: false,
     renderOverviewRuler: false,
     fontSize: 12,
-    lineHeight: 18,
+    lineHeight,
     scrollbar: { alwaysConsumeMouseWheel: false },
   });
   modifiedEditor.setModel(modified);
 
   return {
     modifiedEditor,
-    original: undefined,
     layout: () => modifiedEditor.layout(),
     dispose: () => modifiedEditor.dispose(),
-    startSizing: (fitToContent) =>
-      modifiedEditor.onDidContentSizeChange(fitToContent).dispose,
+    contentHeight: () => modifiedEditor.getContentHeight(),
+    startSizing: (fitToContent) => {
+      const sizing = modifiedEditor.onDidContentSizeChange(fitToContent);
+      return () => sizing.dispose();
+    },
+  };
+};
+
+const linesOf = (text: string): string[] => text.split(/\r\n|\r|\n/);
+
+/** how often, at most, the 3-way view re-lines-up while the resolution is typed into */
+const realignDelayMs = 150;
+
+/**
+ * current | resolution | incoming, as three plain editors side by side.
+ * Every pane is as tall as its content - the page scrolls, never a pane - so
+ * lining them up is the whole of keeping them in step: once each stretch
+ * between shared lines is padded to the same height, they scroll as one
+ * because they are one piece of the page. Folding and wrapping are off in all
+ * three, as either would move one pane's lines out from under the others.
+ */
+const buildThreeWayHandle = (
+  monaco: MonacoApi,
+  host: HTMLElement,
+  models: { current: MonacoTextModel; resolution: MonacoTextModel; incoming: MonacoTextModel },
+  ancestor: string,
+  editable: boolean,
+): EditorHandle => {
+  host.classList.add("three-way");
+  const paneEditor = (name: string, model: MonacoTextModel, readOnly: boolean): MonacoCodeEditor => {
+    const pane = document.createElement("div");
+    pane.className = `three-way-pane three-way-${name}`;
+    host.append(pane);
+    const editor = monaco.editor.create(pane, {
+      readOnly,
+      automaticLayout: true,
+      // the resolution's margin carries the note "+"; the sides take no notes
+      glyphMargin: model === models.resolution,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      renderOverviewRuler: false,
+      fontSize: 12,
+      lineHeight,
+      scrollbar: { alwaysConsumeMouseWheel: false },
+      folding: false,
+      wordWrap: "off",
+    });
+    editor.setModel(model);
+    return editor;
+  };
+  const panes = [
+    paneEditor("current", models.current, true),
+    paneEditor("resolution", models.resolution, !editable),
+    paneEditor("incoming", models.incoming, true),
+  ] as const;
+  const [, resolutionEditor] = panes;
+
+  const layOut = threeWayLayouter(
+    models.current.getLinesContent(),
+    models.incoming.getLinesContent(),
+    linesOf(ancestor),
+    lineHeight,
+  );
+  const padIds: string[][] = [[], [], []];
+  const markings = panes.map((editor) => editor.createDecorationsCollection([]));
+  let noteZones: Zone[] = [];
+
+  const realign = (): void => {
+    const layout = layOut(models.resolution.getLinesContent(), noteZones);
+    [layout.current, layout.resolution, layout.incoming].forEach((pane, index) => {
+      panes[index]?.changeViewZones((accessor) => {
+        for (const id of padIds[index] ?? []) {
+          accessor.removeZone(id);
+        }
+        padIds[index] = pane.pads.map((pad) => {
+          const domNode = document.createElement("div");
+          domNode.className = "three-way-pad";
+          return accessor.addZone({ ...pad, suppressMouseDown: true, domNode });
+        });
+      });
+      markings[index]?.set(
+        (Object.entries(pane.marks) as [LineMark, number[]][]).flatMap(([mark, lines]) =>
+          lines.map((line) => ({
+            range: new monaco.Range(line, 1, line, 1),
+            options: {
+              isWholeLine: true,
+              className: `tw-line tw-${mark}`,
+              linesDecorationsClassName: `tw-edge tw-edge-${mark}`,
+            },
+          })),
+        ),
+      );
+    });
+  };
+
+  let realignTimer: ReturnType<typeof setTimeout> | undefined;
+  const edits = models.resolution.onDidChangeContent(() => {
+    clearTimeout(realignTimer);
+    realignTimer = setTimeout(realign, realignDelayMs);
+  });
+  realign();
+
+  return {
+    modifiedEditor: resolutionEditor,
+    layout: () => {
+      for (const editor of panes) {
+        editor.layout();
+      }
+    },
+    dispose: () => {
+      clearTimeout(realignTimer);
+      edits.dispose();
+      for (const editor of panes) {
+        editor.dispose();
+      }
+      host.classList.remove("three-way");
+    },
+    contentHeight: () => Math.max(...panes.map((editor) => editor.getContentHeight())),
+    startSizing: (fitToContent) => {
+      const sizing = panes.map((editor) => editor.onDidContentSizeChange(fitToContent));
+      return () => {
+        for (const watch of sizing) {
+          watch.dispose();
+        }
+      };
+    },
+    noteZonesChanged: (zones) => {
+      noteZones = zones;
+      realign();
+    },
   };
 };
 
@@ -154,26 +302,58 @@ export const createDiffEditor = (
       monaco.Uri.parse(`inmemory://review/${which}/${path}`),
     );
   const modified = modelFor(side.after, "modified");
+  // made when a surface first needs them, then kept for the next one
+  const otherModels = new Map<string, MonacoTextModel>();
+  const otherModel = (content: string, which: string): MonacoTextModel => {
+    const existing = otherModels.get(which);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const model = modelFor(content, which);
+    otherModels.set(which, model);
+    return model;
+  };
 
-  const handle =
-    fileStatus === "A" ?
-      buildPlainEditorHandle(monaco, host, modified, editable)
-    : buildDiffEditorHandle(
+  const kindFor = (view: DiffView): EditorKind =>
+    view === "threeWay" && side.incoming !== undefined ? "threeWay"
+    : fileStatus === "A" ? "plain"
+    : "diff";
+
+  const buildHandle = (kind: EditorKind): EditorHandle => {
+    if (kind === "threeWay") {
+      return buildThreeWayHandle(
         monaco,
         host,
-        modelFor(side.before, "original"),
-        modified,
+        {
+          current: otherModel(side.before, "current"),
+          resolution: modified,
+          incoming: otherModel(side.incoming ?? "", "incoming"),
+        },
+        side.ancestor ?? "",
         editable,
       );
-  const { modifiedEditor } = handle;
+    }
+    return kind === "plain" ?
+        buildPlainEditorHandle(monaco, host, modified, editable)
+      : buildDiffEditorHandle(
+          monaco,
+          host,
+          otherModel(side.before, "original"),
+          modified,
+          editable,
+        );
+  };
+
+  let kind = kindFor(diffViewStore.get());
+  let handle = buildHandle(kind);
 
   // sized to its own content, always - so a long file or an open note thread
   // scrolls the page, never a scrollbar nested inside the editor itself
   const fitToContent = () => {
-    host.style.height = `${Math.max(modifiedEditor.getContentHeight() + 24, 120)}px`;
+    host.style.height = `${Math.max(handle.contentHeight() + 24, 120)}px`;
     handle.layout();
   };
-  const stopSizing = handle.startSizing(fitToContent);
+  let stopSizing = handle.startSizing(fitToContent);
 
   let { sha } = side;
   let dirty = false;
@@ -244,11 +424,23 @@ export const createDiffEditor = (
   // sense with a server behind the page to persist and relay them - without one
   // they'd be dead controls, so standalone opens stay read-only and none of
   // this wiring runs at all
-  if (server !== undefined) {
+  let drawNotes = (): void => {};
+
+  /** hangs the notes off whichever surface is showing, returning how to take
+      them down again when it is swapped for another */
+  const wireNotes = (surface: EditorHandle): (() => void) => {
+    const { modifiedEditor } = surface;
     let zoneIds: string[] = [];
+    let zones: MonacoViewZone[] = [];
     let zoneObservers: ResizeObserver[] = [];
+    const listeners: MonacoDisposable[] = [];
     const decorations = modifiedEditor.createDecorationsCollection([]);
     let editing: number | undefined;
+
+    const reportZones = () =>
+      surface.noteZonesChanged?.(
+        zones.map(({ afterLineNumber, heightInPx }) => ({ afterLineNumber, heightInPx })),
+      );
 
     // a zone's real height can change after it's added - the dom isn't laid
     // out on the same frame (the same reason NoteZone's own caret/scroll
@@ -278,6 +470,7 @@ export const createDiffEditor = (
         }
         zone.heightInPx = content.offsetHeight;
         modifiedEditor.changeViewZones((accessor) => accessor.layoutZone(id));
+        reportZones();
         // the zone's own height change alters getContentHeight() too - without
         // this the editor grows a scrollbar to reach it rather than the host
         // element growing to fit
@@ -287,7 +480,7 @@ export const createDiffEditor = (
       return observer;
     };
 
-    const drawNotes = () => {
+    drawNotes = () => {
       const lines = new Set([
         ...notesFor(path).map((note) => note.line),
         ...(editing === undefined ? [] : [editing]),
@@ -301,6 +494,7 @@ export const createDiffEditor = (
           zoneObserver.disconnect();
         }
         zoneObservers = [];
+        zones = [];
         zoneIds = [...lines].map((line) => {
           const domNode = document.createElement("div");
           render(
@@ -324,6 +518,7 @@ export const createDiffEditor = (
             domNode,
           };
           const id = accessor.addZone(zone);
+          zones.push(zone);
           const content = domNode.firstElementChild;
           if (content instanceof HTMLElement) {
             zoneObservers.push(watchZoneHeight(id, zone, content));
@@ -335,6 +530,7 @@ export const createDiffEditor = (
           return id;
         });
       });
+      reportZones();
 
       decorations.set(
         notesFor(path).map((note) => ({
@@ -348,17 +544,19 @@ export const createDiffEditor = (
       );
     };
 
-    modifiedEditor.addAction({
-      id: "add-review-note",
-      label: "Add review note",
-      contextMenuGroupId: "navigation",
-      keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
-      run(instance) {
-        editing = instance.getPosition().lineNumber;
-        focusNoteOnLine(editing);
-        drawNotes();
-      },
-    });
+    listeners.push(
+      modifiedEditor.addAction({
+        id: "add-review-note",
+        label: "Add review note",
+        contextMenuGroupId: "navigation",
+        keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
+        run(instance) {
+          editing = instance.getPosition().lineNumber;
+          focusNoteOnLine(editing);
+          drawNotes();
+        },
+      }),
+    );
 
     /* a + in the gutter of whichever line the mouse is on, so adding a note is
        something you can see rather than something you have to know */
@@ -384,22 +582,40 @@ export const createDiffEditor = (
       );
     };
 
-    modifiedEditor.onMouseMove((event) =>
-      markHoveredLine(event.target.position?.lineNumber ?? undefined),
+    listeners.push(
+      modifiedEditor.onMouseMove((event) =>
+        markHoveredLine(event.target.position?.lineNumber ?? undefined),
+      ),
+      modifiedEditor.onMouseLeave(() => markHoveredLine(undefined)),
+      modifiedEditor.onMouseDown((event) => {
+        if (
+          event.target.type ===
+            monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+          event.target.position !== null
+        ) {
+          editing = event.target.position.lineNumber;
+          focusNoteOnLine(editing);
+          drawNotes();
+        }
+      }),
     );
-    modifiedEditor.onMouseLeave(() => markHoveredLine(undefined));
-    modifiedEditor.onMouseDown((event) => {
-      if (
-        event.target.type ===
-          monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
-        event.target.position !== null
-      ) {
-        editing = event.target.position.lineNumber;
-        focusNoteOnLine(editing);
-        drawNotes();
-      }
-    });
 
+    drawNotes();
+
+    return () => {
+      drawNotes = () => {};
+      for (const zoneObserver of zoneObservers) {
+        zoneObserver.disconnect();
+      }
+      for (const listener of listeners) {
+        listener.dispose();
+      }
+    };
+  };
+
+  let unwireNotes = server === undefined ? () => {} : wireNotes(handle);
+
+  if (server !== undefined) {
     if (editable) {
       // synced almost as soon as it's typed, rather than sitting unsaved until
       // a deliberate Save that's easy to forget
@@ -414,22 +630,42 @@ export const createDiffEditor = (
 
     liveEditors.set(path, {
       sha: () => sha,
-      refreshNotes: drawNotes,
+      refreshNotes: () => drawNotes(),
       isDirty: () => dirty,
       applyFromDisk,
       overwriteDiskWith,
     });
-
-    drawNotes();
   }
+
+  // 2-way and 3-way are different surfaces, not options on one: a switch
+  // between them builds the other over the same models
+  const stopFollowingView = diffViewStore.subscribe(() => {
+    const next = kindFor(diffViewStore.get());
+    if (next === kind) {
+      return;
+    }
+    kind = next;
+    unwireNotes();
+    stopSizing();
+    handle.dispose();
+    host.replaceChildren();
+    handle = buildHandle(kind);
+    stopSizing = handle.startSizing(fitToContent);
+    unwireNotes = server === undefined ? () => {} : wireNotes(handle);
+    fitToContent();
+  });
 
   return {
     dispose() {
+      stopFollowingView();
+      unwireNotes();
       stopSizing();
       clearTimeout(saveTimer);
       liveEditors.delete(path);
       handle.dispose();
-      handle.original?.dispose();
+      for (const model of otherModels.values()) {
+        model.dispose();
+      }
       modified.dispose();
     },
     // puts the file back the way the review found it - like any other edit,
