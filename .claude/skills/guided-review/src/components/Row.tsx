@@ -11,6 +11,7 @@ import { type ImageRow, type ReviewFile } from "../ReviewPayload.ts";
 import { registerRow, unregisterRow } from "../rowNodes.ts";
 import { useStore } from "../stores.ts";
 import { MonacoDiff } from "./MonacoDiff.tsx";
+import { PathLabel } from "./PathLabel.tsx";
 
 const formatBytes = (bytes: number): string =>
   bytes < 1_024 ? `${bytes} B` : `${(bytes / 1_024).toFixed(1)} KiB`;
@@ -131,7 +132,7 @@ export const Row = ({
             copyPath();
           }}
         >
-          {file.path}
+          <PathLabel path={file.path} />
         </button>
         <button
           type="button"

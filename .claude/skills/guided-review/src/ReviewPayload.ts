@@ -105,6 +105,15 @@ export type ReviewPayload = {
   /** present only for a conflict-resolution review - it is what enables the
       3-way view */
   conflict?: ConflictInfo;
+  /** every package holding a file in the review, as its directory (relative
+      to the repo root, never the root itself) to the name its package.json
+      gives it - so a monorepo's paths read from their package, not the root.
+      Absent from a page built before packages were shown */
+  packages?: Record<string, string>;
+  /** the npm scope (eg "@shop") when every package in the repo shares it -
+      the page then leaves it off the package chips, since it tells them
+      apart from nothing */
+  packageScope?: string;
 };
 
 /**

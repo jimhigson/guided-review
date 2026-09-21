@@ -1,33 +1,54 @@
 /* the changed files, nested into a directory tree instead of reading order.
    Built only from the review's own file list - the same changed-file set the
    guided order reads - never a real filesystem walk, so there is nothing
-   gitignored to exclude in the first place. */
+   gitignored to exclude in the first place.
 
+   A monorepo's packages are top-level nodes of their own, named from their
+   package.json, with the tree inside each starting at the package rather
+   than at the repo root - however deep under the root the package sits. */
+
+import { packageOf } from "./packages.ts";
 import { type ReviewFile } from "./ReviewPayload.ts";
 
 export type FsTreeNode =
-  | { type: "dir"; name: string; path: string; children: FsTreeNode[] }
+  | { type: "dir"; name: string; path: string; isPackage: boolean; children: FsTreeNode[] }
   | { type: "file"; name: string; file: ReviewFile };
 
 type MutableDir = {
   name: string;
   path: string;
+  isPackage: boolean;
   dirs: Map<string, MutableDir>;
   files: ReviewFile[];
 };
 
-const makeDir = (name: string, path: string): MutableDir => ({
+const makeDir = (name: string, path: string, isPackage = false): MutableDir => ({
   name,
   path,
+  isPackage,
   dirs: new Map(),
   files: [],
 });
 
+/** keys packages apart from plain directories in the root's map - no path
+    segment can hold a NUL */
+const packageKey = (dir: string): string => `\0${dir}`;
+
 const insert = (root: MutableDir, file: ReviewFile): void => {
-  const segments = file.path.split("/");
-  const dirSegments = segments.slice(0, -1);
+  const found = packageOf(file.path);
   let cursor = root;
   let path = "";
+  if (found !== undefined) {
+    const key = packageKey(found.dir);
+    const existing = root.dirs.get(key);
+    cursor = existing ?? makeDir(found.name, found.dir, true);
+    if (existing === undefined) {
+      root.dirs.set(key, cursor);
+    }
+    path = found.dir;
+  }
+  const segments = (found === undefined ? file.path : found.rest).split("/");
+  const dirSegments = segments.slice(0, -1);
   for (const segment of dirSegments) {
     path = path === "" ? segment : `${path}/${segment}`;
     const existing = cursor.dirs.get(segment);
@@ -42,14 +63,19 @@ const insert = (root: MutableDir, file: ReviewFile): void => {
   cursor.files.push(file);
 };
 
-/** directories before files, both alphabetical - a familiar file-tree order */
+/** packages, then directories, then files, each alphabetical - a familiar
+    file-tree order, with the monorepo's packages leading it */
 const toNodes = (dir: MutableDir): FsTreeNode[] => {
   const dirNodes: FsTreeNode[] = [...dir.dirs.values()]
-    .sort((left, right) => left.name.localeCompare(right.name))
+    .sort(
+      (left, right) =>
+        Number(right.isPackage) - Number(left.isPackage) || left.name.localeCompare(right.name),
+    )
     .map((child) => ({
       type: "dir",
       name: child.name,
       path: child.path,
+      isPackage: child.isPackage,
       children: toNodes(child),
     }));
   const fileNodes: FsTreeNode[] = [...dir.files]
@@ -69,6 +95,10 @@ const collapseChain = (node: FsTreeNode): FsTreeNode => {
   if (node.type === "file") {
     return node;
   }
+  // a package's name stands alone - its insides still collapse
+  if (node.isPackage) {
+    return { ...node, children: node.children.map(collapseChain) };
+  }
   let { name } = node;
   let current = node;
   while (current.children.length === 1) {
@@ -79,7 +109,13 @@ const collapseChain = (node: FsTreeNode): FsTreeNode => {
     name = `${name}/${only.name}`;
     current = only;
   }
-  return { type: "dir", name, path: current.path, children: current.children.map(collapseChain) };
+  return {
+    type: "dir",
+    name,
+    path: current.path,
+    isPackage: false,
+    children: current.children.map(collapseChain),
+  };
 };
 
 export const buildFsTree = (files: ReviewFile[]): FsTreeNode[] => {

@@ -5,6 +5,7 @@ import { type PathRun, runsByPath } from "../pathRuns.ts";
 import { filesInGroup, groups } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { useStore } from "../stores.ts";
+import { TruncatedPathLabel } from "./PathLabel.tsx";
 import { TreeFileRow } from "./TreeFileRow.tsx";
 
 export type GuidedOrderProps = { state: ReadingState };
@@ -98,9 +99,11 @@ export const GuidedOrder = ({ state }: GuidedOrderProps) => {
                           }
                         />
                         <span class="dir-icon is-open" aria-hidden="true" />
-                        <span class="tree-path-label" title={run.path}>
-                          <span>{run.path}/</span>
-                        </span>
+                        <TruncatedPathLabel
+                          class="tree-path-label"
+                          path={run.path}
+                          suffix="/"
+                        />
                       </li>,
                     ...run.files.map((file) => (
                       <TreeFileRow

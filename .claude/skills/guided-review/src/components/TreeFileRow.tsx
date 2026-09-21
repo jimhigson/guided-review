@@ -3,6 +3,7 @@ import { basename, dirname } from "../paths.ts";
 import { type ReadingState } from "../readingState.ts";
 import { type ReviewFile } from "../ReviewPayload.ts";
 import { FileStatusChip } from "./FileStatusChip.tsx";
+import { TruncatedPathLabel } from "./PathLabel.tsx";
 
 export type TreeFileRowProps = {
   file: ReviewFile;
@@ -39,9 +40,7 @@ export const TreeFileRow = ({ file, state, noted, showDir }: TreeFileRowProps) =
         )}
         <span class="tree-base">{basename(file.path)}</span>
         {showDir && !ticked && (
-          <span class="tree-dir">
-            <span>{dirname(file.path)}</span>
-          </span>
+          <TruncatedPathLabel class="tree-dir" path={dirname(file.path)} />
         )}
       </button>
       {noted > 0 && !ticked && <span class="note-count">{noted}</span>}

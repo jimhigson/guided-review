@@ -7,7 +7,14 @@ import { files } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { useStore } from "../stores.ts";
 import { withMembership } from "../ticks.ts";
+import { packageOf } from "../packages.ts";
+import { packageTitle } from "./PathLabel.tsx";
 import { TreeFileRow } from "./TreeFileRow.tsx";
+
+const packageTitleOf = (dir: string): string => {
+  const found = packageOf(dir);
+  return found === undefined ? dir : packageTitle(found);
+};
 
 export type FsTreeProps = { state: ReadingState };
 
@@ -62,8 +69,15 @@ export const FsTree = ({ state }: FsTreeProps) => {
             <span class="fs-dir-caret" aria-hidden="true">
               {open ? "" : ""}
             </span>
-            <span class={`dir-icon ${open ? "is-open" : ""}`} aria-hidden="true" />
-            <span class="fs-dir-name">{node.name}</span>
+            {node.isPackage ?
+              <span class="pkg-name" title={packageTitleOf(node.path)}>
+                {node.name}
+              </span>
+            : <>
+                <span class={`dir-icon ${open ? "is-open" : ""}`} aria-hidden="true" />
+                <span class="fs-dir-name">{node.name}</span>
+              </>
+            }
           </button>
           <span class="tree-count">
             {done}/{descendants.length}

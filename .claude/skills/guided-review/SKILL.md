@@ -804,6 +804,22 @@ diffs stay in `ui-monospace`.
   `renderSideBySide: true` alone does nothing in a pane this narrow, because
   monaco's `useInlineViewWhenSpaceIsLimited` drops back to the inline view
   below ~900px on its own. Both go in `sideBySideOptions`.
+- **Paths read from their package in a monorepo.** Any directory holding a
+  `package.json` is a package, except the repo root (in a monorepo that's the
+  workspace). `build.ts` finds each file's nearest package, reading the
+  `package.json` as the review sees it, and records `packages` (directory →
+  name) in the payload. Everywhere a path shows, `PathLabel` draws the
+  package's name as an outlined, tinted chip and then the path inside the
+  package. When every package in the repo shares one npm scope, the chip
+  leaves it off (`@shop/core` shows as `core`), and the full name moves to the
+  chip's tooltip. This is checked against every `package.json` in the repo, not
+  only the reviewed files' packages, so one unscoped package anywhere keeps the
+  scopes on. That covers the row heads, the chapter view's directory headings
+  and the diff-size view. The tree view makes each package a top-level node,
+  with the tree inside it starting at the package. Where a label truncates,
+  a run heading keeps the chip whole, while a file row gives up the chip
+  before the file's name. `fixtures/monorepo.sh <new dir>` builds a small
+  monorepo with uncommitted changes to try it on, in worktree mode.
 - **3-way is a different surface, not an option.** On a conflict review
   (`payload.conflict`, and `incoming`/`ancestor` on each side),
   `createDiffEditor` builds three plain editors in the host instead of a diff

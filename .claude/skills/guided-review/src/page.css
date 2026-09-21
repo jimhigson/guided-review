@@ -467,7 +467,11 @@ button.tree-file-link:focus-visible { outline: 2px solid var(--accent); outline-
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 0 100 auto;
+  /* shrink is shared out in proportion, so a name beside a merely large
+     factor still gives up a pixel - and an ellipsis - while the directory
+     has room left to give. Factors this far apart make it strict: the
+     directory goes first, then a package chip, the name last of all */
+  flex: 0 1000000 auto;
   min-width: 0;
   /* ellipsis at the *start*: the directory nearest the file is the half
      worth keeping */
@@ -477,6 +481,48 @@ button.tree-file-link:focus-visible { outline: 2px solid var(--accent); outline-
 
 /* ...but the path itself is ltr, or bidi moves its leading "." to the end */
 .tree-dir > span { direction: ltr; unicode-bidi: embed; }
+
+/* a monorepo package, named from its package.json, wherever a path starts
+   inside one - the path after it reads from the package, not the repo root.
+   Accent-tinted, outlined and slightly bolder than the path, so a package
+   boundary stands out in a column of paths */
+.pkg-name {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 3px;
+  padding: 0 0.3em;
+  margin-right: 0.35em;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+/* a package icon inside the chip's border, before the name */
+.pkg-name::before {
+  content: "\f1c7"; /* bi-box-seam */
+  font-family: "bootstrap-icons";
+  font-weight: 400;
+  font-size: 0.95em;
+  margin-right: 0.3em;
+  vertical-align: -0.1em;
+}
+
+/* heading a run of files, the package is the point, so the chip keeps its
+   whole width and the path after it gives way. Beside a file's name the name
+   matters more: the chip gives way once the directory has, before the name */
+.tree-path-heading > .pkg-name { flex: none; margin-right: 0; }
+.tree-file-link > .pkg-name {
+  flex: 0 10000 auto;
+  min-width: 2.5em;
+  margin-right: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* stated once above a contiguous run of files sharing a directory, rather
    than repeated on every one of them */

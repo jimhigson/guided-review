@@ -352,6 +352,91 @@ const sidesFor = (
   };
 };
 
+/**
+ * the package each reviewed file is in: its nearest directory holding a
+ * package.json, read as the review sees it (the after side, or the before
+ * side for a file the change deletes). The repo root is never a package here -
+ * in a monorepo its package.json is the workspace, and naming it on every
+ * root file would say nothing
+ */
+const packagesFor = (
+  repo: string,
+  options: ReviewOptions,
+  paths: string[],
+): Record<string, string> => {
+  const nameByDir = new Map<string, string | undefined>();
+  const packageAt = (dir: string): string | undefined => {
+    if (!nameByDir.has(dir)) {
+      const { before, after } = sidesFor(repo, options, `${dir}/package.json`);
+      const text = after === "" ? before : after;
+      let name: string | undefined;
+      if (text !== "") {
+        try {
+          const parsed = JSON.parse(text) as { name?: unknown };
+          name = typeof parsed.name === "string" && parsed.name !== "" ? parsed.name : dir;
+        } catch {
+          // a package.json that doesn't parse still makes its directory a package
+          name = dir;
+        }
+      }
+      nameByDir.set(dir, name);
+    }
+    return nameByDir.get(dir);
+  };
+
+  const packages: Record<string, string> = {};
+  for (const path of paths) {
+    const segments = path.split("/").slice(0, -1);
+    for (let depth = segments.length; depth > 0; depth--) {
+      const dir = segments.slice(0, depth).join("/");
+      const name = packageAt(dir);
+      if (name !== undefined) {
+        packages[dir] = name;
+        break;
+      }
+    }
+  }
+  return packages;
+};
+
+/** every file in the tree the review reads as its "after" side */
+const filesAfter = (repo: string, options: ReviewOptions): string[] => {
+  const tree =
+    options.mode === "commit" ? options.ref
+    : options.mode === "pr" ? options.head
+    : options.mode === "conflict" && options.conflict?.resolution !== "worktree" ?
+      options.conflict?.resolution
+    : undefined;
+  const listing =
+    tree === undefined ?
+      git(repo, "ls-files", "--cached", "--others", "--exclude-standard")
+    : git(repo, "ls-tree", "-r", "--name-only", tree);
+  return listing.split("\n").filter((line) => line !== "");
+};
+
+/**
+ * the npm scope every package in the repo shares, if they all share one - not
+ * just the packages this review touches, so a scope is only dropped where it
+ * really does say nothing anywhere in the monorepo
+ */
+const sharedPackageScope = (repo: string, options: ReviewOptions): string | undefined => {
+  const manifests = filesAfter(repo, options).filter(
+    (path) => path.endsWith("/package.json") && !path.split("/").includes("node_modules"),
+  );
+  const scopes = new Set(
+    manifests.map((path) => {
+      try {
+        const { name } = JSON.parse(sidesFor(repo, options, path).after) as { name?: unknown };
+        return typeof name === "string" ? (/^(@[^/]+)\//.exec(name)?.[1] ?? "") : "";
+      } catch {
+        return "";
+      }
+    }),
+  );
+  const [only] = scopes;
+  return scopes.size === 1 && only !== "" ? only : undefined;
+};
+
 const slug = (text: string): string =>
   text
     .toLowerCase()
@@ -605,6 +690,12 @@ export const collectReview = (
       links,
       images,
       repoRoot: resolve(repo),
+      packages: packagesFor(
+        repo,
+        options,
+        groups.flatMap((group) => group.items.map((item) => item.path)),
+      ),
+      packageScope: sharedPackageScope(repo, options),
       ...(options.conflict === undefined ?
         {}
       : { conflict: { ...options.conflict.info, files: conflictKinds } }),
