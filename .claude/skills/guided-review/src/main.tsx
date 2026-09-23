@@ -112,7 +112,7 @@ const main = async (): Promise<void> => {
     throw new Error("the page has no #app to render into");
   }
 
-  const switchTo = async (number: number): Promise<void> => {
+  const switchTo = async (key: string): Promise<void> => {
     const dirty = [...liveEditors.values()].some((editor) => editor.isDirty());
     if (
       dirty &&
@@ -120,7 +120,7 @@ const main = async (): Promise<void> => {
     ) {
       return;
     }
-    selectReview(number);
+    selectReview(key);
     imageStatsStore.set({});
     await loadNotes();
     const ticks = await loadTicks();

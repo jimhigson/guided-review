@@ -10,6 +10,15 @@ export type ReviewItem = {
   status: string;
   /** why this file is here and what to look at, as html */
   note?: string;
+  /** reviewing a whole stack at once: which of its PRs changed this file, in
+      stack order. Absent in a single PR's own review, where every file is
+      that PR's by definition */
+  layers?: {
+    /** its place in the stack, as the page says it: "PR 2/3" */
+    label: string;
+    /** which PR that is - a number, or the branch of one not pushed yet */
+    name: string;
+  }[];
 };
 
 export type ReviewGroup = {
@@ -126,9 +135,16 @@ export type ReviewPayload = {
  * a stack sibling whose review nobody has authored yet has no `block`
  */
 export type ShellReview = {
-  number: number;
+  /** what identifies this review in the page - its block id, the url it
+      records, what the stack bar switches to. A PR's number as a string, or a
+      local stack branch's name as a slug: a stack of branches nobody has
+      pushed has no numbers to go by */
+  key: string;
+  /** what the stack bar shows for it: "#34" for a PR, the branch for a layer
+      that is only local */
+  label: string;
   title: string;
-  /** the PR page on the forge */
+  /** the PR page on the forge - empty when there is nothing there yet */
   url: string;
   /** element id of the inert block holding this review's ReviewPayload */
   block?: string;
@@ -144,6 +160,9 @@ export type ShellReview = {
   baseSha?: string;
   /** an instructions file in the stack directory awaits a contributing agent */
   awaitingContribution?: boolean;
+  /** the every-layer-at-once review, which the stack bar offers as a toggle
+      rather than as another layer of the chain */
+  aggregate?: boolean;
 };
 
 /**
@@ -153,8 +172,8 @@ export type ShellReview = {
  */
 export type ReviewShell = {
   reviews: ShellReview[];
-  /** the `number` of the review shown first */
-  current: number;
+  /** the `key` of the review shown first */
+  current: string;
 };
 
 /** a file in reading order, carrying where it sits in the document */

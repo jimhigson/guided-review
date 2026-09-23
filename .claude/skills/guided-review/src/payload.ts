@@ -2,7 +2,7 @@
  *
  * The page can carry several reviews (a PR stack); exactly one is active at a
  * time. These exports are live bindings onto the active review: selectReview
- * reassigns them, and main.tsx remounts the whole App keyed by review number,
+ * reassigns them, and main.tsx remounts the whole App keyed by review,
  * so every component re-reads them on the next render. Nothing may cache them
  * across a switch.
  */
@@ -13,7 +13,7 @@ import {
   type ReviewShell,
   type ShellReview,
 } from "./ReviewPayload.ts";
-import { recordReviewInUrl, reviewNumberFromUrl } from "./urlState.ts";
+import { recordReviewInUrl, reviewKeyFromUrl } from "./urlState.ts";
 
 const parseBlock = <Parsed,>(elementId: string): Parsed => {
   const element = document.getElementById(elementId);
@@ -27,10 +27,10 @@ export const shell = parseBlock<ReviewShell>("shell");
 
 export const server = window.__reviewServer;
 
-const carriedReview = (number: number): { review: ShellReview; block: string } => {
-  const review = shell.reviews.find((candidate) => candidate.number === number);
+const carriedReview = (key: string): { review: ShellReview; block: string } => {
+  const review = shell.reviews.find((candidate) => candidate.key === key);
   if (review === undefined || review.block === undefined) {
-    throw new Error(`the page carries no review for pr ${number}`);
+    throw new Error(`the page carries no review ${key}`);
   }
   return { review, block: review.block };
 };
@@ -51,8 +51,8 @@ export let packageScope: ReviewPayload["packageScope"];
 export let files: ReviewFile[];
 export let total: number;
 
-export const selectReview = (number: number): void => {
-  const { review, block } = carriedReview(number);
+export const selectReview = (key: string): void => {
+  const { review, block } = carriedReview(key);
   activeReview = review;
   payload = parseBlock<ReviewPayload>(block);
   ({ id: reviewId, meta, groups, sides, stats, links, images, repoRoot, conflict, packages, packageScope } = payload);
@@ -64,25 +64,25 @@ export const selectReview = (number: number): void => {
     })),
   );
   total = files.length;
-  recordReviewInUrl(number);
+  recordReviewInUrl(key);
 };
 
-const isCarried = (number: number): boolean =>
-  shell.reviews.find((review) => review.number === number)?.block !== undefined;
+const isCarried = (key: string): boolean =>
+  shell.reviews.find((review) => review.key === key)?.block !== undefined;
 
-// a url naming a carried pr wins - it's what a reload or a shared link asks
-// for. Otherwise stacks read base-first; shell.current is just the build's
-// anchor PR
-const initialReviewNumber = (): number => {
-  const requested = reviewNumberFromUrl();
+// a url naming a carried review wins - it's what a reload or a shared link
+// asks for. Otherwise stacks read base-first; shell.current is just the
+// build's anchor
+const initialReviewKey = (): string => {
+  const requested = reviewKeyFromUrl();
   if (requested !== undefined && isCarried(requested)) {
     return requested;
   }
   const [base] = shell.reviews;
-  return base !== undefined && base.block !== undefined ? base.number : shell.current;
+  return base !== undefined && base.block !== undefined ? base.key : shell.current;
 };
 
-selectReview(initialReviewNumber());
+selectReview(initialReviewKey());
 
 /** whether the active review's editors may write to the served checkout */
 export const activeReviewIsEditable = (): boolean =>

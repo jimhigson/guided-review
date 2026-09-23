@@ -55,6 +55,14 @@
   --del: #ad0707; /* editorGutter.deletedBackground */
   --del-bg: rgb(173 7 7 / 0.15); /* diffEditor.removedTextBackground */
 
+  /* which PR of a stack something belongs to - a hue of its own, used for
+     nothing else, so a PR reference is recognisable wherever it appears:
+     the stack bar, the chips on a row, the labels on gathered notes */
+  --pr: #652d90; /* charts.purple */
+  --pr-ink: #ffffff; /* text on a solid --pr fill */
+  --pr-bg: rgb(101 45 144 / 0.12);
+  --pr-edge: rgb(101 45 144 / 0.45);
+
   --add-edge: var(--new);
   --rm-edge: var(--del);
 
@@ -91,6 +99,11 @@
     --del: #f28772; /* editorGutter.deletedBackground */
     --del-bg: rgb(244 112 103 / 0.3); /* diffEditor.removedTextBackground */
 
+    --pr: #b180d7; /* charts.purple */
+    --pr-ink: #14101a;
+    --pr-bg: rgb(177 128 215 / 0.18);
+    --pr-edge: rgb(177 128 215 / 0.5);
+
     --add-edge: var(--new);
     --rm-edge: var(--del);
 
@@ -120,6 +133,11 @@
   --mod-bg: rgb(227 185 126 / 0.3);
   --del: #f28772;
   --del-bg: rgb(244 112 103 / 0.3);
+
+  --pr: #b180d7;
+  --pr-ink: #14101a;
+  --pr-bg: rgb(177 128 215 / 0.18);
+  --pr-edge: rgb(177 128 215 / 0.5);
 
   --add-edge: var(--new);
   --rm-edge: var(--del);
@@ -1618,7 +1636,7 @@ button.control.img-add-note { align-self: flex-start; }
 .stack-label {
   font-family: var(--display);
   font-size: 16px;
-  color: var(--ink-faint);
+  color: var(--pr);
   flex: none;
 }
 
@@ -1647,13 +1665,73 @@ button.control.img-add-note { align-self: flex-start; }
 
 span.stack-pr.is-current { cursor: default; }
 
-a.stack-pr:hover, button.stack-pr:hover { border-color: var(--accent); }
+a.stack-pr:hover, button.stack-pr:hover { border-color: var(--pr); }
 a.stack-pr:focus-visible, button.stack-pr:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--pr);
   outline-offset: 2px;
 }
 
 .stack-pr.is-unreviewed { opacity: 0.65; }
+
+/* the every-layer switch: in the bar, but outside the chain of arrows */
+.stack-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.35rem;
+  padding: 0.12rem 0.5rem;
+  border: 1px solid var(--rule);
+  font-size: 1rem;
+  color: var(--ink-soft);
+  background: var(--control-bg);
+  cursor: pointer;
+}
+
+.stack-all:hover { border-color: var(--pr); }
+
+.stack-all.is-current {
+  color: var(--pr-ink);
+  background: var(--pr);
+  border-color: var(--pr);
+}
+
+/* the whole-stack review leads with what each PR of the stack does, in its
+   own author's words - one block apiece inside the lede */
+.pr-summary { display: block; }
+.pr-summary + .pr-summary { margin-top: 0.5rem; }
+.pr-summary strong { color: var(--ink); font-weight: 600; }
+.pr-summary-text { display: block; margin-top: 0.1rem; }
+
+/* which layers of a stack changed this file, on its row - the whole point of
+   the every-layer review for a file only one layer touches */
+.row-layers {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  color: var(--ink-faint);
+}
+
+.layer-chip {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  color: var(--pr);
+  background: var(--pr-bg);
+  border: 1px solid var(--pr-edge);
+  border-radius: 3px;
+  padding: 0 0.3em;
+}
+
+/* in the every-layer review a file's note is what each layer said about it,
+   each its own paragraph behind its own label */
+.note-from { display: block; }
+.note-from + .note-from { margin-top: 0.4rem; }
+
+.note-layer {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--pr);
+  margin-right: 0.35em;
+}
 
 .stack-awaiting {
   font-size: 1rem;
@@ -1685,9 +1763,9 @@ a.stack-pr:focus-visible, button.stack-pr:focus-visible {
   cursor: pointer;
 }
 
-.stack-pr-pill:hover { border-color: var(--accent); }
+.stack-pr-pill:hover { border-color: var(--pr); }
 .stack-pr-pill:focus-within {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--pr);
   outline-offset: 2px;
 }
 
@@ -1702,11 +1780,11 @@ a.stack-pr:focus-visible, button.stack-pr:focus-visible {
 }
 
 .stack-pr-pill.is-current {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--pr);
+  border-color: var(--pr);
 }
 
-.stack-pr.is-current { color: var(--accent-ink); }
+.stack-pr.is-current { color: var(--pr-ink); }
 
 .stack-number {
   font-family: var(--mono);

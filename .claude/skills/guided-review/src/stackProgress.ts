@@ -10,7 +10,7 @@ import { makeStore } from "./stores.ts";
 
 export type StackProgress = { ticked: number; total: number };
 
-export const stackProgressStore = makeStore<Record<number, StackProgress>>({});
+export const stackProgressStore = makeStore<Record<string, StackProgress>>({});
 
 const hasBlock = (review: ShellReview): review is ShellReview & { block: string } =>
   review.block !== undefined;
@@ -51,7 +51,7 @@ export const loadStackProgress = async (): Promise<void> => {
     shell.reviews.filter(hasBlock).map(async (review) => {
       const total = pathsOf(review.block).length;
       const ticked = await tickedCountOf(review);
-      return [review.number, { ticked, total }] as const;
+      return [review.key, { ticked, total }] as const;
     }),
   );
   stackProgressStore.set(Object.fromEntries(entries));
@@ -74,7 +74,7 @@ export const setSiblingTicked = async (
   // reads this store, not the request in flight
   stackProgressStore.set({
     ...stackProgressStore.get(),
-    [review.number]: { ticked: ticked.length, total: paths.length },
+    [review.key]: { ticked: ticked.length, total: paths.length },
   });
 
   if (server === undefined) {

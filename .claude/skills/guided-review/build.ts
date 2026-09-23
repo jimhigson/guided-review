@@ -29,6 +29,7 @@ import { buildPage } from "./buildPage.ts";
 import { resolveConflict } from "./conflict.ts";
 import {
   type AuthoredGroups,
+  branchKey,
   collectReview,
   finishCss,
   git,
@@ -130,32 +131,36 @@ const shellFor = (
   title: string,
   baseSha: string,
 ): ReviewShell => {
-  const prNumber = options.pr === undefined ? 0 : Number(options.pr);
+  const head = options.mode === "pr" && options.head !== undefined ? shortRef(options.head) : undefined;
+  const key = options.pr ?? (head === undefined ? "0" : branchKey(head));
   const own: ShellReview = {
-    number: prNumber,
+    key,
+    label: options.pr === undefined ? (head ?? "review") : `#${options.pr}`,
     title,
     url: "",
-    block: reviewBlockId(prNumber),
+    block: reviewBlockId(key),
     reviewId: collectedId,
     baseSha,
-    ...(options.mode === "pr" && options.head !== undefined ?
-      { head: shortRef(options.head) }
-    : {}),
+    ...(head === undefined ? {} : { head }),
   };
 
   if (options.stack === undefined) {
-    return { reviews: [own], current: prNumber };
+    return { reviews: [own], current: key };
   }
   const stack = readResolvedStack(options.stack);
   if (stack.entries.length < 2) {
-    return { reviews: [own], current: prNumber };
+    return { reviews: [own], current: key };
   }
+  // which layer this build *is*: its number where it has one, else its branch
+  const mine = stack.entries.find((entry) =>
+    options.pr === undefined ? entry.head === head : entry.number === Number(options.pr),
+  );
   return {
-    current: stack.current,
+    current: mine?.key ?? key,
     reviews: stack.entries.map((entry) =>
-      entry.number === stack.current ?
-        { ...own, number: entry.number, title: entry.title, url: entry.url, head: entry.head }
-      : { number: entry.number, title: entry.title, url: entry.url, head: entry.head },
+      entry.key === mine?.key ?
+        { ...own, key: entry.key, label: entry.label, title: entry.title, url: entry.url, head: entry.head, block: reviewBlockId(entry.key) }
+      : { key: entry.key, label: entry.label, title: entry.title, url: entry.url, head: entry.head },
     ),
   };
 };
@@ -177,10 +182,11 @@ const main = async (): Promise<void> => {
   const { payload, imageBlocks, forge, empty, imageBytes, imagesOmitted, baseSha } = collected;
 
   const shell = shellFor(options, payload.id, payload.meta.title, baseSha);
+  const currentReview = shell.reviews.find((review) => review.key === shell.current);
   const { script, css } = await buildPage();
   const html = page(
     shell,
-    [jsonBlock(reviewBlockId(shell.current), payload), ...imageBlocks],
+    [jsonBlock(currentReview?.block ?? reviewBlockId(shell.current), payload), ...imageBlocks],
     script,
     finishCss(css),
   );
@@ -209,7 +215,7 @@ const main = async (): Promise<void> => {
   }
   if (shell.reviews.length > 1) {
     console.log(
-      `stack   ${shell.reviews.map((review) => (review.number === shell.current ? `[#${review.number}]` : `#${review.number}`)).join(" → ")}`,
+      `stack   ${shell.reviews.map((review) => (review.key === shell.current ? `[${review.label}]` : review.label)).join(" → ")}`,
     );
   }
   console.log(`id      ${payload.id}  (ticks and notes live in a directory of this name)`);

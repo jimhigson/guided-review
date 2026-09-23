@@ -179,6 +179,19 @@ export const Row = ({
 
       <div class="row-body" hidden={collapsed}>
         <div class="row-summary">
+          {file.layers !== undefined && (
+            <p class="row-layers">
+              changed in{" "}
+              {file.layers.map((layer, index) => (
+                <>
+                  {index > 0 && ", "}
+                  <span class="layer-chip" title={layer.name}>
+                    {layer.label}
+                  </span>
+                </>
+              ))}
+            </p>
+          )}
           {imageRow !== undefined ?
             <span class="row-stat">{imageByteStat(imageRow)}</span>
           : <span class="row-stat">

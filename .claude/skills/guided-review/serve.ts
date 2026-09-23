@@ -51,7 +51,7 @@ type Notes = Record<string, Note[]>;
 
 /** the slice of the page's shell this server routes on */
 type ShellReview = {
-  number: number;
+  label: string;
   head?: string;
   reviewId?: string;
   baseSha?: string;
@@ -310,7 +310,7 @@ class ReviewPage {
           new ReviewStore(
             dirname(this.html),
             review.reviewId,
-            labelled ? `#${review.number}` : "",
+            labelled ? review.label : "",
             // a page built before baseSha existed falls back to HEAD - the old,
             // less exact comparison, rather than failing to serve at all
             review.baseSha ?? "HEAD",

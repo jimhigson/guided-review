@@ -1,4 +1,4 @@
-/* keeps the browser url in sync with what's on screen - which pr, which file
+/* keeps the browser url in sync with what's on screen - which review, which file
    - so a reload, or a copied link, lands back in the same place. Always
    replaceState, never pushState: activeId follows the scroll continuously,
    and pushing an entry per scroll tick would wreck the back button. */
@@ -9,17 +9,11 @@ const withUrlParam = (name: string, value: string): URL => {
   return url;
 };
 
-export const reviewNumberFromUrl = (): number | undefined => {
-  const raw = new URLSearchParams(window.location.search).get("pr");
-  if (raw === null) {
-    return undefined;
-  }
-  const number = Number(raw);
-  return Number.isFinite(number) ? number : undefined;
-};
+export const reviewKeyFromUrl = (): string | undefined =>
+  new URLSearchParams(window.location.search).get("review") ?? undefined;
 
-export const recordReviewInUrl = (number: number): void => {
-  window.history.replaceState(window.history.state, "", withUrlParam("pr", String(number)));
+export const recordReviewInUrl = (key: string): void => {
+  window.history.replaceState(window.history.state, "", withUrlParam("review", key));
 };
 
 export const filePathFromUrl = (): string | undefined =>

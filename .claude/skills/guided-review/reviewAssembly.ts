@@ -721,10 +721,31 @@ export const collectReview = (
   };
 };
 
+/** one layer of a stack, as resolveStack.ts prints it. A layer that is only
+    local - its branch exists, nobody has pushed a PR for it - has no `number`
+    and no `url`; everything downstream keys off `key` instead, so a stack can
+    be reviewed long before any of it reaches a forge */
+export type StackEntry = {
+  /** identity: a PR's number as a string, else the branch as a slug */
+  key: string;
+  /** how the stack bar names it: "#34", else the branch */
+  label: string;
+  /** the PR number, where there is a PR */
+  number?: number;
+  title: string;
+  /** the PR page, empty for a local-only layer */
+  url: string;
+  /** the branch this layer sits on - the layer below's head, or the trunk */
+  base: string;
+  /** this layer's own branch */
+  head: string;
+};
+
 /** resolveStack.ts's output - the stack file both builders read */
 export type ResolvedStack = {
-  current: number;
-  entries: { number: number; title: string; url: string; base: string; head: string }[];
+  /** the `key` of the layer the stack was resolved from */
+  current: string;
+  entries: StackEntry[];
 };
 
 export const readResolvedStack = (path: string): ResolvedStack =>
@@ -755,7 +776,11 @@ export const page = (
   ].join("\n");
 
 /** the block element id a carried review's payload lives at */
-export const reviewBlockId = (number: number): string => `review-${number}`;
+export const reviewBlockId = (key: string): string => `review-${key}`;
+
+/** a branch name as a review key: usable in an element id and a url */
+export const branchKey = (branch: string): string =>
+  branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-|-$/g, "") || "branch";
 
 /** the contents tree's file-type icons come from this skill's own
     bootstrap-icons install - a dependency, so its absence is a build failure */

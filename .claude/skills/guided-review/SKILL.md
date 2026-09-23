@@ -29,7 +29,7 @@ in the middle:
 | file | does |
 | --- | --- |
 | `resolvePr.sh` | a PR number/branch/url → the local refs to diff, fetched (forks included) |
-| `resolveStack.ts` | the same target → the whole PR stack it belongs to, for the page's stack bar |
+| `resolveStack.ts` | the same target, or `--stack` for a `gh stack` (pushed or not) → the whole stack it belongs to, for the page's stack bar |
 | `buildStack.ts` | every authored review of a stack (one groups json per PR, from however many agents) → ONE page with an in-place review switcher |
 | `changedFiles.sh` | the scope's file list as `STATUS<TAB>PATH`, binaries dropped — except raster images, which get compare viewers |
 | *(you)* | author a groups json: the grouping, the order, the per-file notes |
@@ -169,18 +169,34 @@ paused mid-merge (or mid-rebase) with a resolution already written. Its header
 comment lists what the resolution does to each file, so you know what the page
 should show.
 
-### PR stacks
+### Stacks, on the forge or only local
 
-In whole-PR mode, also check whether the PR sits in a **stack** (a chain of
-open PRs each based on the head branch of the one below):
+Also check whether the change sits in a **stack**: a chain of branches, each
+based on the one below it. There are two ways to resolve one, and a stack does
+**not** have to be on a forge to be reviewed:
 
 ```bash
-node .claude/skills/guided-review/resolveStack.ts 34 > stack.json
+node .claude/skills/guided-review/resolveStack.ts 34       > stack.json  # from a PR
+node .claude/skills/guided-review/resolveStack.ts --stack  > stack.json  # from gh stack
 ```
 
+- **From a PR** (a number, branch or url): walks the chain of open PRs, each
+  based on the head branch of the one below.
+- **`--stack`**: reads `gh stack view --json` for the branches of this
+  checkout's stack, **pushed or not**. Use it whenever the repo uses
+  `gh stack`, and always for a stack whose layers have no PRs yet - reviewing
+  a stack *before* submitting it is much of the point of building it in
+  layers, and waiting for PRs would mean reviewing it after the fact. A
+  half-submitted stack resolves in one piece: layers that do have PRs keep
+  their numbers and links.
+
 It prints `{current, entries}` in stack order (trunk end first) and says on
-stderr whether a stack was found. One entry → forget it, nothing changes. Two
-or more → the page can carry the stack, in either of two shapes:
+stderr whether a stack was found. Each entry carries a **`key`** - its PR
+number, or its branch as a slug where it has no PR - and that key names its
+files in the stack directory, identifies it in the page's url, and labels it
+in the stack bar. Read keys out of `stack.json` rather than guessing them.
+One entry → forget it, nothing changes. Two or more → the page can carry the
+stack, in either of two shapes:
 
 - **Reviewing just your PR**: `build.ts --stack stack.json` as normal. The
   page grows a bar along the top: the whole chain, this PR highlighted,
@@ -192,20 +208,23 @@ or more → the page can carry the stack, in either of two shapes:
   many agents contribute, one file per PR so nobody ever writes over anyone:
 
   ```
-  <stackDir>/stack.json             resolveStack.ts output
-  <stackDir>/<pr>.groups.json       that PR's authored groups, one author each
-  <stackDir>/<pr>.instructions.md   optional: a request for another agent to
-                                    author the groups json above
-  node .claude/skills/guided-review/buildStack.ts --dir <stackDir> --out review.html [--current <pr>]
+  <stackDir>/stack.json              resolveStack.ts output
+  <stackDir>/<key>.groups.json       that layer's authored groups, one author each
+  <stackDir>/<key>.instructions.md   optional: a request for another agent to
+                                     author the groups json above
+  node .claude/skills/guided-review/buildStack.ts --dir <stackDir> --out review.html [--current <key|pr|branch>]
   ```
 
   Put the directory somewhere every contributing agent can find from any
   worktree of the repo — the convention is
   `$(git rev-parse --path-format=absolute --git-common-dir)/guided-review/stack-<trunk-most pr>`.
-  `buildStack.ts` fetches each PR from `refs/pull/<n>/head`, diffs each
-  mid-stack PR against the fetched head below it, and writes ONE page: every
-  authored review switchable from the bar, siblings without a groups json
-  shown greyed (marked *awaiting review* when an instructions file exists).
+  `buildStack.ts` fetches each PR from `refs/pull/<n>/head`, reads a
+  local-only layer straight from its branch in the checkout (the only copy
+  there is), diffs each layer against the one below it, and writes ONE page:
+  every authored review switchable from the bar, siblings without a groups
+  json shown greyed (marked *awaiting review* when an instructions file
+  exists). A local stack needs no remote at all: with no `origin` the trunk is
+  the local branch and nothing is fetched.
   **Contributing is: write your PR's groups json into the directory and
   re-run the build** — the serving process re-reads the html and creates the
   new review's store without restarting, so the reviewer just reloads.
@@ -217,6 +236,26 @@ write `<pr>.instructions.md` (scope, refs, where to put the json, how to
 rebuild) for the agent that owns that PR — its author will write better notes
 than a cold reader. Never silently author a shallow review of a PR you
 haven't read.
+
+**Every layer at once.** With two or more authored layers, `buildStack.ts`
+also builds an **all** review, offered as a switch at the end of the stack
+bar. It is the stack read as the single change it will land as: measured from
+the trunk to the top authored layer, so each file's diff is its whole
+cumulative change, not one layer's slice of it. Each file appears **once**,
+under the first PR that touches it, and its row says which PRs changed it -
+the answer to "who did this?" for a file only one of them touched. Where more
+than one wrote a note about a file, the row carries all of them, each behind
+its own label. The page says **"PR 2/3"** rather than a branch name or the
+word "layer" - where a change sits in the stack is what a reader needs, and it
+reads the same whether the stack has been pushed or not; the branch or PR
+number is the tooltip. It has its own ticks and notes, separate
+from the layers' (it is its own review), so reading the stack whole and
+reading it layer by layer don't overwrite each other's progress.
+
+For a local stack the bar shows branch names in place of PR numbers, and a
+layer with no PR is plain text rather than a link to a page that doesn't
+exist. `fixtures/localStack.sh <new dir>` builds a three-layer local stack to
+try it on.
 
 **One review per page is editable**: the one whose head branch the served
 `--repo` checkout has on disk (`serve.ts` matches and tells the page). The
@@ -776,6 +815,7 @@ microsoft/vscode:
 | `--accent-ink` | `button.foreground` | text on a solid `--accent` fill |
 | `--new` / `--del` | `editorGutter.addedBackground` / `deletedBackground` | New/Deleted chip text, diff stats |
 | `--mod` | `notificationsWarningIcon.foreground` | Modified chip text |
+| `--pr` / `--pr-bg` / `--pr-edge` / `--pr-ink` | `charts.purple` | **which PR of a stack**: the stack bar, the "all" switch, the chips on a row, the labels on gathered notes. Used for nothing else, so a PR reference is recognisable wherever it appears - keep it that way |
 | `--new-bg` / `--mod-bg` / `--del-bg` | `diffEditor.insertedTextBackground` / gauge/warning tint / `removedTextBackground` | chip and callout fills, all translucent - VS Code's own colours lean on alpha throughout, so this palette does too |
 
 `page.css`'s own `:root` block carries the full, current set of tokens as
@@ -797,7 +837,12 @@ diffs stay in `ui-monospace`.
   toggle, open-everything, close-everything, clear-ticks, and a **Diffs
   select** (inline / side by side, plus 3-way on a conflict review only).
 - **A stack bar above the header row**, only when the shell knows a 2+-entry
-  stack: every PR of the chain in order, the active review highlighted. A
+  stack: every PR of the chain in order, the active review highlighted, and -
+  when the build made one - an **all** switch at the end, which reads every
+  PR at once (see "Stacks, on the forge or only local"). The switch is not a
+  step of the chain and sits outside its arrows; switching it off returns to
+  the PR that was being read before. Everything in the bar is drawn in
+  `--pr`, the colour kept for which-PR references. A
   sibling the page carries is a button that **switches the whole page to that
   review in place** — `selectReview` reparses its inert payload block and the
   App remounts keyed by review, reloading that review's own notes and ticks

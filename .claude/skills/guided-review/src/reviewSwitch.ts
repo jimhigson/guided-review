@@ -3,8 +3,8 @@
    registers itself at startup */
 
 export type ReviewSwitcher = (
-  /** the shell `number` of the review to make active */
-  number: number,
+  /** the shell `key` of the review to make active */
+  key: string,
 ) => void;
 
 let switcher: ReviewSwitcher = () => {};
@@ -13,6 +13,6 @@ export const setReviewSwitcher = (next: ReviewSwitcher): void => {
   switcher = next;
 };
 
-export const switchReview = (number: number): void => {
-  switcher(number);
+export const switchReview = (key: string): void => {
+  switcher(key);
 };
