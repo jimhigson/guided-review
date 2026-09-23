@@ -751,6 +751,14 @@ export type ResolvedStack = {
 export const readResolvedStack = (path: string): ResolvedStack =>
   JSON.parse(readFileSync(path, "utf8")) as ResolvedStack;
 
+/** the tab icon: the same mark the header links to the game with, inlined
+    like everything else the page needs, so a review opened straight from disk
+    has it too - a served /favicon.ico would leave the file form blank */
+const faviconDataUri = (): string => {
+  const iconPath = join(dirname(fileURLToPath(import.meta.url)), "src", "favicon.png");
+  return `data:image/png;base64,${readFileSync(iconPath).toString("base64")}`;
+};
+
 export const page = (
   shell: ReviewShell,
   /** the carried reviews' payload blocks, each followed by its image blocks */
@@ -763,6 +771,7 @@ export const page = (
     // open guesses windows-1252, and every dash and arrow turns to mojibake
     `<meta charset="utf-8" />`,
     `<title>guided review</title>`,
+    `<link rel="icon" href="${faviconDataUri()}" />`,
     `<style>${css}</style>`,
     `<div id="app"></div>`,
     // serve.ts replaces this with the page's window.__reviewServer bootstrap

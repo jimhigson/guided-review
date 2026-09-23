@@ -987,6 +987,11 @@ diffs stay in `ui-monospace`.
 - Both themes via the artifact-design token pattern: `:root`, the
   `prefers-color-scheme` media query, and both `data-theme` overrides. Monaco
   is re-themed from both signals.
+- The **tab icon is inlined** into the page as a data uri, from
+  `src/favicon.png` - the same mark the header links to the game with. It has
+  to be inlined rather than served: a built `review.html` opened straight from
+  disk has no server to ask, and `serve.ts` answers `/favicon.ico` with a 204
+  precisely so nothing goes looking.
 - `<meta charset="utf-8">` is the first line the page is assembled from, and
   `build.ts` reads and writes utf-8 explicitly — without both, `file://` opens
   guess windows-1252 and every dash and arrow in the prose turns to mojibake.
