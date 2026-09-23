@@ -238,7 +238,7 @@ than a cold reader. Never silently author a shallow review of a PR you
 haven't read.
 
 **Every layer at once.** With two or more authored layers, `buildStack.ts`
-also builds an **all** review, offered as a switch at the end of the stack
+also builds an **all** review, offered as a button at the end of the stack
 bar. It is the stack read as the single change it will land as: measured from
 the trunk to the top authored layer, so each file's diff is its whole
 cumulative change, not one layer's slice of it. Each file appears **once**,
@@ -843,11 +843,14 @@ diffs stay in `ui-monospace`.
   opened - closed, the sidebar leaves nothing else behind to say it exists.
 - **A stack bar above the header row**, only when the shell knows a 2+-entry
   stack: every PR of the chain in order, the active review highlighted, and -
-  when the build made one - an **all** switch at the end, which reads every
-  PR at once (see "Stacks, on the forge or only local"). The switch is not a
-  step of the chain and sits outside its arrows; switching it off returns to
-  the PR that was being read before. Everything in the bar is drawn in
-  `--pr`, the colour kept for which-PR references. A
+  when the build made one - an **all** button at the end, which reads every
+  PR at once (see "Stacks, on the forge or only local"). It is not a step of
+  the chain and sits outside its arrows, and it is a button rather than a
+  checkbox: every checkbox along this bar means "every file of this one is
+  read", and this means "show me all of them" - the same control saying two
+  different things is worse than two shapes. Clicking any PR goes back to
+  reading that one. Everything in the bar is drawn in `--pr`, the colour kept
+  for which-PR references. A
   sibling the page carries is a button that **switches the whole page to that
   review in place** — `selectReview` reparses its inert payload block and the
   App remounts keyed by review, reloading that review's own notes and ticks

@@ -9,10 +9,6 @@ import { useStore } from "../stores.ts";
 
 export type StackBarProps = { state: ReadingState };
 
-/** the layer to come back to when the every-layer review is switched off -
-    whichever one was being read before it went on */
-let lastLayerKey: string | undefined;
-
 /**
  * The PR-stack strip along the top: every PR of the stack in order, trunk end
  * first, with the active review highlighted, and - where the build made one -
@@ -38,9 +34,6 @@ export const StackBar = ({ state }: StackBarProps) => {
   const layers = shell.reviews.filter((review) => review.aggregate !== true);
   const everyLayer = shell.reviews.find((review) => review.aggregate === true);
   const readingEveryLayer = active.aggregate === true;
-  if (!readingEveryLayer) {
-    lastLayerKey = active.key;
-  }
 
   const readCheckbox = (review: ShellReview) => {
     const isActiveReview = review.key === active.key;
@@ -141,26 +134,19 @@ export const StackBar = ({ state }: StackBarProps) => {
       ))}
       {everyLayer !== undefined && (
         // not a step of the chain - a way of reading the whole chain at once,
-        // so it sits apart from the arrows rather than in them
-        <label
+        // so it sits apart from the arrows rather than in them. A plain
+        // button, not a checkbox: the checkboxes along this bar mean "every
+        // file of this one is read", and this means "show me all of them"
+        <button
+          type="button"
           class={`stack-all ${readingEveryLayer ? "is-current" : ""}`}
+          aria-pressed={readingEveryLayer}
           title={`${everyLayer.title} - every file once, with what each PR said about it`}
+          disabled={readingEveryLayer}
+          onClick={() => switchReview(everyLayer.key)}
         >
-          <input
-            class="tick small"
-            type="checkbox"
-            checked={readingEveryLayer}
-            aria-label="Review every PR at once"
-            onChange={(event) =>
-              switchReview(
-                event.currentTarget.checked ? everyLayer.key : (
-                  (lastLayerKey ?? layers[0]?.key ?? everyLayer.key)
-                ),
-              )
-            }
-          />
           all
-        </label>
+        </button>
       )}
     </nav>
   );
