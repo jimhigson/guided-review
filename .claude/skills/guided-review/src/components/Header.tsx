@@ -92,15 +92,6 @@ export const Header = ({ state }: HeaderProps) => {
           </span>
         </div>
         <div class="controls">
-          <button
-            class="control"
-            type="button"
-            aria-pressed={state.showContents}
-            aria-controls="contents"
-            onClick={() => state.setShowContents(!state.showContents)}
-          >
-            Contents
-          </button>
           <button class="control" type="button" onClick={() => state.setAllDiffs(true)}>
             Open all diffs
           </button>

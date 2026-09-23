@@ -10,6 +10,7 @@ import { filePathFromUrl, recordFileInUrl } from "../urlState.ts";
 import { Group } from "./Group.tsx";
 import { Header } from "./Header.tsx";
 import { Intro } from "./Intro.tsx";
+import { ContentsTab } from "./ContentsTab.tsx";
 import { contentsWouldOverlay, Layout, useContentsOverlays } from "./Layout.tsx";
 import { Toasts } from "./Toasts.tsx";
 
@@ -185,6 +186,7 @@ export const App = ({ initialTicks }: AppProps) => {
   return (
     <>
       <Header state={state} />
+      <ContentsTab state={state} />
       <Layout state={state} overlays={overlays}>
         <div class="shell">
           <Intro />

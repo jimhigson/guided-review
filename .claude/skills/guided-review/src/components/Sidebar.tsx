@@ -24,6 +24,16 @@ export const Sidebar = ({ state }: SidebarProps) => {
   return (
     <aside class="sidebar" id="contents" aria-label="Contents">
       <div class="sidebar-head">
+        <button
+          type="button"
+          class="contents-hide"
+          aria-expanded={true}
+          aria-controls="contents"
+          title="Hide the contents"
+          onClick={() => state.setShowContents(false)}
+        >
+          {"\uf284"}
+        </button>
         <SelectControl
           label="view"
           ariaLabel="Contents view"

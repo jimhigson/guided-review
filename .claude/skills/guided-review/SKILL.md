@@ -833,9 +833,14 @@ diffs stay in `ui-monospace`.
 
 ### What the page already does — preserve it if you edit
 
-- Sticky header: live progress bar and checked/total count, the Contents
-  toggle, open-everything, close-everything, clear-ticks, and a **Diffs
-  select** (inline / side by side, plus 3-way on a conflict review only).
+- Sticky header: live progress bar and checked/total count,
+  open-everything, close-everything, clear-ticks, and a **Diffs select**
+  (inline / side by side, plus 3-way on a conflict review only).
+- **The contents is opened from the edge it lives on**, not from the header: a
+  vertical *Contents* tab fixed to the left of the viewport, shown only while
+  the contents is closed. Closing it is a chevron inside the sidebar's own
+  head. A toggle at the far end of the toolbar was too far from the thing it
+  opened - closed, the sidebar leaves nothing else behind to say it exists.
 - **A stack bar above the header row**, only when the shell knows a 2+-entry
   stack: every PR of the chain in order, the active review highlighted, and -
   when the build made one - an **all** switch at the end, which reads every

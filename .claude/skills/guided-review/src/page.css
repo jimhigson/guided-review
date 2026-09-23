@@ -377,12 +377,54 @@ button.control.segment {
 .sidebar-head {
   flex: none;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   gap: 0.5rem;
   margin: 0 0.5rem 0.6rem 0;
   padding-top: 0.9rem;
 }
+
+.sidebar-head label.control.select { flex: 1 1 auto; min-width: 0; }
+
+/* closing the contents belongs in the contents, beside what it closes */
+.contents-hide {
+  flex: none;
+  font-family: "bootstrap-icons";
+  font-size: 1.2rem;
+  line-height: 1;
+  color: var(--ink-faint);
+  background: none;
+  border: 1px solid transparent;
+  padding: 0.1rem 0.2rem;
+  cursor: pointer;
+}
+
+.contents-hide:hover { color: var(--accent); }
+.contents-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* the way back to the contents, on the edge the contents comes out of - the
+   header is a long way from the thing it opens, and closed, the sidebar
+   leaves nothing else behind to say it is there */
+.contents-tab {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  z-index: 14;
+  /* vertical-rl reads top-to-bottom; the half turn makes it read up the page,
+     the way a tab on a left edge is read */
+  writing-mode: vertical-rl;
+  transform: translateY(-50%) rotate(180deg);
+  padding: 0.9rem 0.28rem;
+  border: 1px solid var(--rule);
+  background: var(--card);
+  color: var(--ink-soft);
+  font-family: var(--display);
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.contents-tab:hover { color: var(--accent); border-color: var(--accent); }
+.contents-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .sidebar-head label.control.select { justify-content: space-between; }
 
