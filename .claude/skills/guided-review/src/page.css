@@ -1670,9 +1670,39 @@ button.control.img-add-note { align-self: flex-start; }
   gap: 0.45rem;
   padding: 0.3rem 1.25rem;
   border-bottom: 1px solid var(--rule);
+}
+
+/* a stack or a PR can be longer than the window: the bar scrolls sideways
+   rather than wrapping (which would push the reading order down the page) or
+   being cut off. The scrollbar is left visible but slim - a bar that scrolls
+   with no sign of it is a bar whose far end nobody finds */
+.bar-scrolls {
   overflow-x: auto;
   white-space: nowrap;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--pr-edge) transparent;
+  overscroll-behavior-x: contain;
+}
+
+/* the label and "all" stay put while the chain scrolls under them, so the
+   whole-change view is always one click away */
+.bar-pinned {
+  position: sticky;
+  /* sticky offsets are measured from the scrollport's padding edge, so a bar
+     with side padding would leave that much of the chain showing beside the
+     pinned block; this pulls it back over the gutter */
+  left: -1.25rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: none;
+  /* reaching into the bar's own left padding, or the chain shows through the
+     gutter beside it as it scrolls past */
+  margin-left: -1.25rem;
+  padding: 0 0.5rem 0 1.25rem;
+  /* the header's own ground, so the chain passing under it is hidden */
+  background: var(--card);
 }
 
 .stack-label {
@@ -1719,7 +1749,7 @@ a.stack-pr:focus-visible, button.stack-pr:focus-visible {
 .stack-all {
   display: inline-flex;
   align-items: center;
-  margin-left: 0.35rem;
+  margin-right: 0.35rem;
   padding: 0.12rem 0.5rem;
   border: 1px solid var(--rule);
   font-family: var(--body);
@@ -1739,6 +1769,86 @@ a.stack-pr:focus-visible, button.stack-pr:focus-visible {
   background: var(--pr);
   border-color: var(--pr);
 }
+
+/* ---- the commits of a PR -----------------------------------------------
+   under the stack bar, because a PR is a chain of commits the way a stack is
+   a chain of PRs. Same colour as the stack bar: both say which part of the
+   change you are reading */
+.commit-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 1.25rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.commit-label {
+  font-family: var(--display);
+  font-size: 16px;
+  color: var(--pr);
+  flex: none;
+}
+
+.commit-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: none;
+  max-width: 28ch;
+  padding: 0.08rem 0.45rem;
+  border: 1px solid var(--rule);
+  background: var(--control-bg);
+  font-family: var(--body);
+  font-size: 1rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.commit-step:hover { border-color: var(--pr); }
+.commit-step:focus-visible { outline: 2px solid var(--pr); outline-offset: 2px; }
+
+.commit-step.is-current {
+  color: var(--pr-ink);
+  background: var(--pr);
+  border-color: var(--pr);
+  cursor: default;
+}
+
+.commit-sha { font-family: var(--mono); flex: none; }
+.commit-subject { overflow: hidden; text-overflow: ellipsis; }
+.commit-step.is-current .commit-sha { color: var(--pr-ink); }
+
+/* reading every commit (or every PR) at once: a heading wherever the reading
+   order moves from one to the next */
+.band {
+  margin: 1.4rem 0 0;
+  padding: 0.3rem 0 0.25rem;
+  border-bottom: 1px solid var(--pr-edge);
+  font-family: var(--display);
+  color: var(--ink);
+}
+
+h1.band { font-size: 1.4rem; font-weight: 650; }
+
+h2.band {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+  border-bottom-style: dashed;
+}
+
+h2.band .commit-sha {
+  font-size: 0.95rem;
+  color: var(--pr);
+  background: var(--pr-bg);
+  border: 1px solid var(--pr-edge);
+  border-radius: 3px;
+  padding: 0 0.3em;
+}
+
+.band-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- comments from the forge ------------------------------------------
    a PR's own review threads, shown where they were written. Read-only but for

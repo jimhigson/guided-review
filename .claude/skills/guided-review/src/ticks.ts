@@ -35,6 +35,16 @@ export const loadTicks = async (): Promise<Set<string>> => {
     somewhere else from the echo of one made here */
 export const adoptTicks = makeStore(new Set<string>());
 
+/** what is ticked right now, for anything outside the app that has to remount
+    it - switching commit keeps the same review, and so the same ticks */
+let current = new Set<string>();
+
+export const setCurrentTicks = (ticked: Set<string>): void => {
+  current = ticked;
+};
+
+export const currentTicks = (): Set<string> => current;
+
 export const ticksSignature = (ticked: Iterable<string>): string =>
   JSON.stringify([...ticked].sort());
 
@@ -70,6 +80,7 @@ const postTicks = async (): Promise<void> => {
 };
 
 export const saveTicks = (ticked: Set<string>): void => {
+  current = ticked;
   if (server === undefined) {
     try {
       localStorage.setItem(storageKey(), JSON.stringify([...ticked]));

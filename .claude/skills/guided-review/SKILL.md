@@ -38,6 +38,7 @@ in the middle:
 | `src/` | the page itself — a preact app in tsx: palette, layout, contents sidebar, diff rendering, the image compare viewer, notes, checkboxes |
 | `buildPage.ts` | bundles `src/` to the one script and one stylesheet `build.ts` inlines |
 | `serve.ts` | serves the built page — how a review is normally delivered; its editors become editable and save back to the working tree |
+| `fixtures/commitStack.sh` | a throwaway stack of 2 PRs × 5 commits, for trying a per-commit review |
 | `prComments.ts` | a served page → its PRs' comments from GitHub, written beside each review for the page to show |
 | `awaitNotes.ts` | tells you each reviewer note as it's written - streaming, or `--once` per note, however your host can best be woken (see "Keeping the notes channel open") - so you act on it while they are still reading |
 | `ackNote.ts` | confirms you've seen a note, before you have an answer for it - turns "sent, waiting for an agent" into "the agent is on it" honestly |
@@ -420,6 +421,49 @@ Write one json file — the whole of your output:
   ]
 }
 ```
+
+### Author a PR commit by commit
+
+A PR is a chain of commits the way a stack is a chain of PRs, and the commits
+are how the change was written: each one a step, with its own reason. Where a
+PR has more than one commit worth reading apart, author it per commit instead
+of as one lump - replace `groups` with `commits`:
+
+```json
+{
+  "meta": { "title": "…" },
+  "commits": [
+    { "ref": "<sha>", "groups": [ { "title": "…", "items": [ { "path": "…", "status": "M", "note": "…" } ] } ] },
+    { "ref": "<sha>", "groups": [ … ] }
+  ]
+}
+```
+
+- `ref` is anything git resolves; the build reads its short sha and subject.
+- **Each commit's chapters read that commit alone**: a file's diff there is
+  `git show <sha> -- <path>`, not the PR's whole range. The same file changed
+  in three commits is read three times, each time as that commit changed it -
+  which is the point. Write its note for *that* commit: what this step did and
+  why, not a summary of the file.
+- `groups` and `commits` are alternatives. The build refuses both.
+
+The page then grows a **commit bar** under the stack bar: every commit of the
+PR, plus **all**, which is where it starts - the PR as a whole is still the
+thing being reviewed. Reading them all, each commit's chapters sit under a
+heading naming it; with the every-PR review on too, the PRs are the top
+heading and the commits sit under them.
+
+**A tick is against a file of a commit**, not just a file. Reading every
+commit at once, ticking a file marks it in every commit it appears in (and in
+the every-PR review, across the PRs too), so the reading order still empties
+as you go; reading one commit, the tick is that commit's alone. Per-commit
+rows are read-only - a commit's diff is history, and nothing on disk is that
+file as that commit had it - so saving back is only ever for a review of the
+working state. Notes stay keyed by file and line, and are shared by every
+commit that touches the file.
+
+`fixtures/commitStack.sh <new dir>` builds a two-PR stack of five commits to
+try it on.
 
 Each changed file goes in exactly one group — even one that bears on two
 themes sits in the one where it's best read, and the other group's blurb or

@@ -284,17 +284,23 @@ export const createDiffEditor = (
   monaco: MonacoApi,
   host: HTMLElement,
   path: string,
+  /** where this row's sides live: the path, or the path within a commit */
+  fileKey: string,
+  /** the commit being read, when the review is read commit by commit */
+  commit: string | undefined,
   fileStatus: string,
   { setCounts, setDirty, setStatus }: DiffEditorSetters,
 ): DiffEditorControls => {
-  const side = sides[path];
+  const side = sides[fileKey];
   if (side === undefined) {
     throw new Error(`${path} has no before/after sides to diff`);
   }
   const language = languageFor(path);
   // only the review matching the served checkout can write back; in a stack
-  // page the other reviews' editors read only, though their notes still work
-  const editable = activeReviewIsEditable();
+  // page the other reviews' editors read only, though their notes still work.
+  // A commit's diff is history - the file as it was then - so there is nothing
+  // on disk it could be saved into
+  const editable = activeReviewIsEditable() && commit === undefined;
 
   // the model's uri decides the typescript worker's script kind, so it has to
   // carry the real extension - an extensionless uri parses .tsx as .ts
@@ -302,7 +308,7 @@ export const createDiffEditor = (
     monaco.editor.createModel(
       content,
       language,
-      monaco.Uri.parse(`inmemory://review/${which}/${path}`),
+      monaco.Uri.parse(`inmemory://review/${which}/${fileKey}`),
     );
   const modified = modelFor(side.after, "modified");
   // made when a surface first needs them, then kept for the next one
@@ -647,7 +653,7 @@ export const createDiffEditor = (
       });
     }
 
-    liveEditors.set(path, {
+    liveEditors.set(fileKey, {
       sha: () => sha,
       refreshNotes: () => drawNotes(),
       isDirty: () => dirty,
@@ -680,7 +686,7 @@ export const createDiffEditor = (
       unwireNotes();
       stopSizing();
       clearTimeout(saveTimer);
-      liveEditors.delete(path);
+      liveEditors.delete(fileKey);
       handle.dispose();
       for (const model of otherModels.values()) {
         model.dispose();

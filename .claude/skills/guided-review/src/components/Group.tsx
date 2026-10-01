@@ -1,3 +1,4 @@
+import { tickKeyOf } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { type ReviewFile, type ReviewGroup } from "../ReviewPayload.ts";
 import { Row } from "./Row.tsx";
@@ -11,7 +12,7 @@ export type GroupProps = {
 };
 
 export const Group = ({ group, index, files, open, state }: GroupProps) => {
-  const done = files.filter((file) => state.ticked.has(file.path)).length;
+  const done = files.filter((file) => state.ticked.has(tickKeyOf(file))).length;
 
   return (
     <section class={`group ${open ? "is-open" : ""}`}>
@@ -52,7 +53,7 @@ export const Group = ({ group, index, files, open, state }: GroupProps) => {
             <Row
               key={file.id}
               file={file}
-              ticked={state.ticked.has(file.path)}
+              ticked={state.ticked.has(tickKeyOf(file))}
               collapsed={state.collapsed.has(file.id)}
               diffOpen={state.openDiffs.has(file.id)}
               active={state.activeId === file.id}

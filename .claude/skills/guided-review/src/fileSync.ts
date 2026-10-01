@@ -8,11 +8,13 @@
 
 import { notifyDiskConflict } from "./diskConflict.ts";
 import { type FileFromDisk, liveEditors } from "./liveEditors.ts";
-import { reviewId, server, sides, stats } from "./payload.ts";
+import { diskSyncPaths, reviewId, server, sides, stats } from "./payload.ts";
 import { toastFileUpdated } from "./stores.ts";
 
-/** every path this review carries a text diff for - what the poll asks about */
-export const trackedPaths = (): string[] => Object.keys(sides);
+/** every path this review carries a text diff for that disk can still speak
+    to - what the poll asks about. A commit's rows are history and are left
+    out: the file on disk is not the file as that commit had it */
+export const trackedPaths = (): string[] => diskSyncPaths();
 
 export const fetchFileFromDisk = (path: string): Promise<FileFromDisk | undefined> => {
   if (server === undefined) {

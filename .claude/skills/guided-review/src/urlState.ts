@@ -16,6 +16,20 @@ export const recordReviewInUrl = (key: string): void => {
   window.history.replaceState(window.history.state, "", withUrlParam("review", key));
 };
 
+/** which commit of the review is being read, when it has commits */
+export const commitKeyFromUrl = (): string | undefined =>
+  new URLSearchParams(window.location.search).get("commit") ?? undefined;
+
+export const recordCommitInUrl = (sha: string | undefined): void => {
+  const url = new URL(window.location.href);
+  if (sha === undefined) {
+    url.searchParams.delete("commit");
+  } else {
+    url.searchParams.set("commit", sha);
+  }
+  window.history.replaceState(window.history.state, "", url);
+};
+
 export const filePathFromUrl = (): string | undefined =>
   new URLSearchParams(window.location.search).get("file") ?? undefined;
 

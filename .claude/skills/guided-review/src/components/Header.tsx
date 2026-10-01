@@ -5,11 +5,12 @@ import { editors, editorStore, type EditorId, setEditor } from "../editor.ts";
 import faviconUrl from "../favicon.png";
 import { notesAsMarkdown, notesStore } from "../notes.ts";
 import { offlineStore } from "../offline.ts";
-import { meta, server, total } from "../payload.ts";
+import { files, meta, server, tickKeyOf, total } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { useStore } from "../stores.ts";
 import { setTheme, themeStore } from "../theme.ts";
 import { SelectControl } from "./SelectControl.tsx";
+import { CommitBar } from "./CommitBar.tsx";
 import { StackBar } from "./StackBar.tsx";
 
 export type HeaderProps = { state: ReadingState };
@@ -68,11 +69,12 @@ export const Header = ({ state }: HeaderProps) => {
     setTimeout(() => setHandoffLabel("Send notes to agent"), 4_000);
   };
 
-  const done = state.ticked.size;
+  const done = files.filter((file) => state.ticked.has(tickKeyOf(file))).length;
 
   return (
     <header class="top" ref={headerRef}>
       <StackBar state={state} />
+      <CommitBar />
       <div class="top-inner">
         <p class="top-title">{meta.headerTitle ?? meta.title}</p>
         {offline && (

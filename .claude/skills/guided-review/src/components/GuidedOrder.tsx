@@ -2,7 +2,7 @@ import { useState } from "preact/hooks";
 
 import { notesStore } from "../notes.ts";
 import { type PathRun, runsByPath } from "../pathRuns.ts";
-import { filesInGroup, groups } from "../payload.ts";
+import { filesInGroup, groups, tickKeyOf } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { useStore } from "../stores.ts";
 import { TruncatedPathLabel } from "./PathLabel.tsx";
@@ -31,7 +31,7 @@ export const GuidedOrder = ({ state }: GuidedOrderProps) => {
     <ol class="tree">
       {groups.map((group, index) => {
         const files = filesInGroup(index);
-        const done = files.filter((file) => state.ticked.has(file.path)).length;
+        const done = files.filter((file) => state.ticked.has(tickKeyOf(file))).length;
         const fullyTicked = done === files.length;
         const open = openOverride.get(index) ?? !fullyTicked;
         return (
@@ -78,7 +78,7 @@ export const GuidedOrder = ({ state }: GuidedOrderProps) => {
               <ul class="tree-files">
                 {runsByPath(files).flatMap((run, runIndex) => {
                   const runDone = run.files.filter((file) =>
-                    state.ticked.has(file.path),
+                    state.ticked.has(tickKeyOf(file)),
                   ).length;
                   return [
                     // once every file under a heading is a pill, they've all

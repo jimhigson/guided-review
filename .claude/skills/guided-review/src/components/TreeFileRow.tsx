@@ -1,5 +1,6 @@
 import { isImagePath } from "../imagePaths.ts";
 import { basename, dirname } from "../paths.ts";
+import { tickKeyOf } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { type ReviewFile } from "../ReviewPayload.ts";
 import { FileStatusChip } from "./FileStatusChip.tsx";
@@ -18,7 +19,7 @@ export type TreeFileRowProps = {
     ticked it shrinks to a pill of just the tick and name, which the list
     flows inline with its ticked neighbours to save vertical space */
 export const TreeFileRow = ({ file, state, noted, showDir }: TreeFileRowProps) => {
-  const ticked = state.ticked.has(file.path);
+  const ticked = state.ticked.has(tickKeyOf(file));
   return (
     <li
       class={`tree-file tree-file-${file.status} ${ticked ? "is-ticked" : ""} ${state.activeId === file.id ? "is-active" : ""}`}

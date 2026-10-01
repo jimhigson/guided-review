@@ -14,11 +14,13 @@ import { imageMimeOf, isImagePath } from "./src/imagePaths.ts";
 import {
   type ConflictFileKind,
   type ImageRow,
+  type ReviewCommit,
   type ImageVersion,
   type ReviewGroup,
   type ReviewMeta,
   type ReviewPayload,
   type ReviewShell,
+  sideKey,
   type Side,
 } from "./src/ReviewPayload.ts";
 
@@ -565,9 +567,43 @@ const counts = (diff: string): [number, number] => {
 export const jsonBlock = (elementId: string, value: unknown): string =>
   `<script type="application/json" id="${elementId}">${JSON.stringify(value).replaceAll("<", "\\u003c")}</script>`;
 
+/** one commit of a PR, as the groups json authors it: which commit, and the
+    chapters for reading that commit on its own */
+export type AuthoredCommit = {
+  /** anything git resolves - a sha, usually */
+  ref: string;
+  /** which PR it belongs to, when several PRs' commits are read as one */
+  pr?: string;
+  groups: ReviewGroup[];
+};
+
 export type AuthoredGroups = {
   meta?: ReviewMeta;
-  groups: ReviewGroup[];
+  /** a review read as one lump: every file of the whole range, once */
+  groups?: ReviewGroup[];
+  /** or read commit by commit, which is what grows the commit bar. The two
+      are alternatives; authoring both is a mistake worth refusing */
+  commits?: AuthoredCommit[];
+};
+
+/** the groups a build works from, whichever way they were authored: every
+    chapter in reading order, each tagged with the commit it reads */
+export const authoredGroups = (authored: AuthoredGroups): ReviewGroup[] => {
+  if (authored.commits !== undefined && authored.groups !== undefined) {
+    throw new Error(
+      "a groups json has either `groups` (the whole range at once) or `commits` (read commit by commit), not both",
+    );
+  }
+  if (authored.commits === undefined) {
+    return authored.groups ?? [];
+  }
+  return authored.commits.flatMap((commit) =>
+    commit.groups.map((group) => ({
+      ...group,
+      commit: commit.ref,
+      ...(commit.pr === undefined ? {} : { pr: commit.pr }),
+    })),
+  );
 };
 
 export type CollectedReview = {
@@ -583,16 +619,19 @@ export type CollectedReview = {
   baseSha: string;
 };
 
-/** each file may be listed once. The page keys a file's tick, notes, stats
-    and before/after by its path, so a second listing would be a second row
-    sharing all of that with the first - both tick together, and the header's
-    count can never reach its total */
+/** each file may be listed once per commit. The page keys a file's tick,
+    stats and before/after by its path and the commit it is read in, so a
+    second listing within one commit would be a second row sharing all of that
+    with the first - both tick together, and the header's count can never
+    reach its total. The same file in two commits is a different matter: that
+    is the same file read twice, which is the point of reading per commit */
 export const rejectRepeatedPaths = (groups: ReviewGroup[]): void => {
   const chaptersByPath = new Map<string, string[]>();
   groups.forEach((group, index) => {
     for (const { path } of group.items) {
-      chaptersByPath.set(path, [
-        ...(chaptersByPath.get(path) ?? []),
+      const key = group.commit === undefined ? path : `${path} in ${group.commit}`;
+      chaptersByPath.set(key, [
+        ...(chaptersByPath.get(key) ?? []),
         `chapter ${index + 1} ("${group.title}")`,
       ]);
     }
@@ -616,7 +655,32 @@ export const collectReview = (
   /** unique per review in the page, so image block ids can't collide */
   imageBlockPrefix: string,
 ): CollectedReview => {
-  const { groups } = authored;
+  // one commit's chapters read that commit alone; `git show` is the whole of
+  // what that means, whatever range the review as a whole covers
+  const commits: ReviewCommit[] = (authored.commits ?? []).map((authoredCommit) => {
+    const sha = git(repo, "rev-parse", `${authoredCommit.ref}^{commit}`).trim();
+    const [short = "", subject = ""] = git(repo, "log", "-1", "--format=%h%x00%s", sha)
+      .trim()
+      .split("\u0000");
+    return {
+      sha,
+      short,
+      subject,
+      ...(authoredCommit.pr === undefined ? {} : { pr: authoredCommit.pr }),
+    };
+  });
+  const shaOfRef = new Map(
+    (authored.commits ?? []).map((authoredCommit, index) => [
+      authoredCommit.ref,
+      commits[index]?.sha ?? authoredCommit.ref,
+    ]),
+  );
+
+  const groups = authoredGroups(authored).map((group) =>
+    group.commit === undefined ? group : (
+      { ...group, commit: shaOfRef.get(group.commit) ?? group.commit }
+    ),
+  );
   rejectRepeatedPaths(groups);
   const meta = authored.meta ?? { title: "guided review" };
 
@@ -638,13 +702,15 @@ export const collectReview = (
     : {};
 
   for (const group of groups) {
+    const { commit } = group;
     for (const item of group.items) {
       const { path, status } = item;
+      const key = sideKey(path, commit);
 
       if (isImagePath(path)) {
-        stats[path] = [0, 0];
+        stats[key] = [0, 0];
         if (forge !== undefined) {
-          links[path] = `${forge}#diff-${sha256(path)}`;
+          links[key] = `${forge}#diff-${sha256(path)}`;
         }
         if (imageBlocks.length >= options.maxImages) {
           imagesOmitted += 1;
@@ -668,26 +734,36 @@ export const collectReview = (
         continue;
       }
 
-      const body = stripHeader(diffFor(repo, options, path, status));
+      const body = stripHeader(
+        commit === undefined ?
+          diffFor(repo, options, path, status)
+        : git(repo, "show", commit, "--", path),
+      );
       if (body.trim() === "") {
-        empty.push(path);
+        empty.push(commit === undefined ? path : `${path} in ${commit.slice(0, 9)}`);
       }
-      stats[path] = counts(body);
+      stats[key] = counts(body);
 
       // whole-file sides feed monaco's diff editor; past the cap the row says
       // to read the file in the tree instead
-      const side = sidesFor(repo, options, path);
+      const side =
+        commit === undefined ?
+          sidesFor(repo, options, path)
+        : {
+            before: gitShow(repo, `${commit}^:${path}`),
+            after: gitShow(repo, `${commit}:${path}`),
+          };
       const longest = Math.max(
         ...[side.before, side.after, side.incoming ?? ""].map((text) => text.split("\n").length - 1),
       );
       if (longest <= options.maxSideLines) {
         // the hash lets a served page refuse to save over a file that moved on
         // disk after the review was built
-        sides[path] = { ...side, sha: sha256(side.after) };
+        sides[key] = { ...side, sha: sha256(side.after) };
       }
 
       if (forge !== undefined) {
-        links[path] = `${forge}#diff-${sha256(path)}`;
+        links[key] = `${forge}#diff-${sha256(path)}`;
       }
     }
   }
@@ -702,6 +778,7 @@ export const collectReview = (
       links,
       images,
       repoRoot: resolve(repo),
+      ...(commits.length === 0 ? {} : { commits }),
       packages: packagesFor(
         repo,
         options,

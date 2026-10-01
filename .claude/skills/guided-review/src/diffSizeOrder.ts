@@ -3,11 +3,11 @@
    to compare by, so they sort ahead of every text file instead. */
 
 import { isImagePath } from "./imagePaths.ts";
-import { stats } from "./payload.ts";
+import { fileKey, stats } from "./payload.ts";
 import { type ReviewFile } from "./ReviewPayload.ts";
 
 const diffSizeOf = (file: ReviewFile): number => {
-  const [added, removed] = stats[file.path] ?? [0, 0];
+  const [added, removed] = stats[fileKey(file)] ?? [0, 0];
   return added + removed;
 };
 

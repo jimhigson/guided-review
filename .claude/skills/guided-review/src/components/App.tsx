@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { nextUnread } from "../nextUnread.ts";
-import { files, filesInGroup, groups, images, meta } from "../payload.ts";
+import {
+  commits,
+  fileKey,
+  files,
+  filesInGroup,
+  groups,
+  images,
+  meta,
+  tickKeyOf,
+  tickKeysOf,
+} from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { type ReviewFile } from "../ReviewPayload.ts";
 import { holdActiveFile, scrollToRow, watchRows } from "../rowNodes.ts";
@@ -29,7 +39,7 @@ export const App = ({ initialTicks }: AppProps) => {
     () =>
       new Set(
         files
-          .filter((file) => ticked.has(file.path) && file.id !== restoredFile?.id)
+          .filter((file) => ticked.has(tickKeyOf(file)) && file.id !== restoredFile?.id)
           .map((file) => file.id),
       ),
   );
@@ -41,7 +51,7 @@ export const App = ({ initialTicks }: AppProps) => {
           .filter(
             (index) =>
               index !== restoredFile?.groupIndex &&
-              filesInGroup(index).every((file) => ticked.has(file.path)),
+              filesInGroup(index).every((file) => ticked.has(tickKeyOf(file))),
           ),
       ),
   );
@@ -50,7 +60,7 @@ export const App = ({ initialTicks }: AppProps) => {
   const [openDiffs, setOpenDiffs] = useState(
     () =>
       new Set([
-        ...files.filter((file) => images[file.path] !== undefined).map((file) => file.id),
+        ...files.filter((file) => images[fileKey(file)] !== undefined).map((file) => file.id),
         ...(restoredFile === undefined ? [] : [restoredFile.id]),
       ]),
   );
@@ -80,7 +90,7 @@ export const App = ({ initialTicks }: AppProps) => {
         setCollapsed((folded) =>
           files.reduce(
             (set, file) =>
-              fresh.has(file.path) && !ticked.has(file.path) ?
+              fresh.has(tickKeyOf(file)) && !ticked.has(tickKeyOf(file)) ?
                 withMembership(set, file.id, true)
               : set,
             folded,
@@ -91,7 +101,12 @@ export const App = ({ initialTicks }: AppProps) => {
   );
 
   const tickFile = (file: ReviewFile, on: boolean) => {
-    setTicked((previous) => withMembership(previous, file.path, on));
+    // reading every commit at once, a file read in one of them is read in all
+    // of them: the tick is against the file of a commit, and this is all the
+    // commits it is in
+    setTicked((previous) =>
+      tickKeysOf(file).reduce((set, key) => withMembership(set, key, on), previous),
+    );
     // reading a file folds it away; changing your mind brings it back
     setCollapsed((previous) => withMembership(previous, file.id, on));
   };
@@ -99,7 +114,10 @@ export const App = ({ initialTicks }: AppProps) => {
   const tickGroup = (index: number, on: boolean) => {
     const groupFiles = filesInGroup(index);
     setTicked((previous) =>
-      groupFiles.reduce((set, file) => withMembership(set, file.path, on), previous),
+      groupFiles.reduce(
+        (set, file) => tickKeysOf(file).reduce((inner, key) => withMembership(inner, key, on), set),
+        previous,
+      ),
     );
     setCollapsed((previous) =>
       groupFiles.reduce((set, file) => withMembership(set, file.id, on), previous),
@@ -184,6 +202,29 @@ export const App = ({ initialTicks }: AppProps) => {
     },
   };
 
+  /** the reading order, with a heading wherever it moves to another PR or
+      another commit - reading every commit at once is otherwise a flat run of
+      chapters with no sign of where one commit ends and the next begins */
+  const bandedGroups = () => {
+    let lastPr: string | undefined;
+    let lastCommit: string | undefined;
+    const manyCommits = new Set(groups.map((group) => group.commit)).size > 1;
+    return groups.map((group, index) => {
+      const pr = group.pr !== lastPr ? group.pr : undefined;
+      if (group.pr !== undefined) {
+        lastPr = group.pr;
+      }
+      const changedCommit = manyCommits && group.commit !== undefined && group.commit !== lastCommit;
+      lastCommit = group.commit;
+      return {
+        group,
+        index,
+        pr,
+        commit: changedCommit ? commits.find((entry) => entry.sha === group.commit) : undefined,
+      };
+    });
+  };
+
   return (
     <>
       <Header state={state} />
@@ -193,15 +234,24 @@ export const App = ({ initialTicks }: AppProps) => {
           <Intro />
           <PrConversation />
           <main>
-            {groups.map((group, index) => (
-              <Group
-                key={index}
-                group={group}
-                index={index}
-                files={filesInGroup(index)}
-                open={!closedGroups.has(index)}
-                state={state}
-              />
+            {bandedGroups().map(({ group, index, pr, commit }) => (
+              <>
+                {pr !== undefined && <h1 class="band band-pr">{pr}</h1>}
+                {commit !== undefined && (
+                  <h2 class="band band-commit">
+                    <span class="commit-sha">{commit.short}</span>
+                    <span class="band-subject">{commit.subject}</span>
+                  </h2>
+                )}
+                <Group
+                  key={index}
+                  group={group}
+                  index={index}
+                  files={filesInGroup(index)}
+                  open={!closedGroups.has(index)}
+                  state={state}
+                />
+              </>
             ))}
           </main>
           <footer dangerouslySetInnerHTML={{ __html: meta.footer ?? "" }} />

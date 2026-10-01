@@ -8,7 +8,7 @@ import { firstChangedLine } from "../firstChangedLine.ts";
 import { notesStore } from "../notes.ts";
 import { githubStore } from "../github.ts";
 import { threadsOffLine } from "../githubTypes.ts";
-import { conflict, images, links, repoRoot, stats, statusLabel } from "../payload.ts";
+import { conflict, fileKey, images, links, repoRoot, stats, statusLabel } from "../payload.ts";
 import { type ImageRow, type ReviewFile } from "../ReviewPayload.ts";
 import { registerRow, unregisterRow } from "../rowNodes.ts";
 import { useStore } from "../stores.ts";
@@ -53,7 +53,7 @@ export const Row = ({
   onDiff,
 }: RowProps) => {
   const [counts, setCounts] = useState<[number, number]>(
-    stats[file.path] ?? [0, 0],
+    stats[fileKey(file)] ?? [0, 0],
   );
   const [copied, setCopied] = useState(false);
   // opening a diff mounts its editor; closing only hides it, so an unsaved edit
@@ -67,7 +67,7 @@ export const Row = ({
   // the diff can hold a thread on a line of the changed side; one about a line
   // the change removed, or left behind by a push, has nowhere to go there
   const strandedThreads = threadsOffLine(prThreads, file.path);
-  const imageRow = images[file.path];
+  const imageRow = images[fileKey(file)];
   const imageStats = useStore(imageStatsStore)[file.path];
   const editor = editors[useStore(editorStore)];
   const nodeRef = useRef<HTMLDivElement>(null);
@@ -100,7 +100,7 @@ export const Row = ({
   };
 
   const [added, removed] = counts;
-  const href = links[file.path];
+  const href = links[fileKey(file)];
 
   return (
     <div
@@ -251,6 +251,8 @@ export const Row = ({
                 <ImagePanel path={file.path} row={imageRow} />
               : <MonacoDiff
                   path={file.path}
+                  fileKey={fileKey(file)}
+                  commit={file.commit}
                   fileStatus={file.status}
                   setCounts={setCounts}
                 />

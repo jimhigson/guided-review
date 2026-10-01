@@ -1,3 +1,4 @@
+import { tickKeyOf } from "./payload.ts";
 import { type ReviewFile } from "./ReviewPayload.ts";
 
 /** the next file in `order` still to read after `from`, skipping any already
@@ -11,6 +12,6 @@ export const nextUnread = (
   from: ReviewFile,
 ): ReviewFile | undefined => {
   const index = order.findIndex((candidate) => candidate.id === from.id);
-  const unread = (candidate: ReviewFile) => !ticked.has(candidate.path);
+  const unread = (candidate: ReviewFile) => !ticked.has(tickKeyOf(candidate));
   return order.slice(index + 1).find(unread) ?? order.slice(0, index).find(unread);
 };

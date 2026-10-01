@@ -36,6 +36,7 @@ import { parseArgs } from "node:util";
 
 import { buildPage } from "./buildPage.ts";
 import {
+  type AuthoredCommit,
   type AuthoredGroups,
   collectReview,
   finishCss,
@@ -96,6 +97,17 @@ const aggregateKey = (entries: StackEntry[]): string =>
  * said about it, each labelled with its layer, and it remembers which layers
  * those were so the page can say so on the row.
  */
+/** every layer's commits, in stack order, each knowing which PR it is from -
+    what the every-PR review is read through when the layers were authored
+    commit by commit */
+const mergeCommits = (layers: AuthoredLayer[]): AuthoredCommit[] =>
+  layers.flatMap(({ entry, authored }, index) =>
+    (authored.commits ?? []).map((commit) => ({
+      ...commit,
+      pr: `PR ${index + 1}/${layers.length} (${entry.label})`,
+    })),
+  );
+
 const mergeLayers = (layers: AuthoredLayer[]): ReviewGroup[] => {
   // "PR 2/3" rather than the branch or the number: where a change sits in the
   // stack is what a reader needs, and it reads the same whether the stack has
@@ -106,7 +118,7 @@ const mergeLayers = (layers: AuthoredLayer[]): ReviewGroup[] => {
   const layersByPath = new Map<string, { label: string; name: string }[]>();
   for (const [index, { entry, authored }] of layers.entries()) {
     const label = place(index);
-    for (const group of authored.groups) {
+    for (const group of authored.groups ?? []) {
       for (const item of group.items) {
         layersByPath.set(item.path, [
           ...(layersByPath.get(item.path) ?? []),
@@ -143,7 +155,7 @@ const mergeLayers = (layers: AuthoredLayer[]): ReviewGroup[] => {
   const seen = new Set<string>();
   const groups: ReviewGroup[] = [];
   for (const [index, { entry, authored }] of layers.entries()) {
-    for (const group of authored.groups) {
+    for (const group of authored.groups ?? []) {
       const items: ReviewItem[] = group.items
         .filter((item) => !seen.has(item.path))
         .map((item) => {
@@ -317,6 +329,10 @@ const main = async (): Promise<void> => {
 
   // every authored layer at once: the stack read as the one change it lands
   // as, measured from the trunk to the topmost layer anyone has reviewed
+  // layers authored commit by commit stay that way when read together: every
+  // commit of every PR in order, rather than each file listed once
+  const perCommit = authoredLayers.some(({ authored }) => authored.commits !== undefined);
+
   if (authoredLayers.length > 1) {
     const top = authoredLayers.at(-1)?.entry;
     const labels = authoredLayers.map(({ entry }) => entry.label);
@@ -331,19 +347,30 @@ const main = async (): Promise<void> => {
           maxSideLines: Number(values["max-side-lines"]),
           maxImages: Number(values["max-images"]),
         },
-        {
-          meta: {
-            title: `All ${labels.length} PRs together`,
-            headerTitle: "all PRs",
-            eyebrow: "every PR at once",
-            lede: stackSummary(authoredLayers),
-            facts: [
-              `measured from <code>${bottom.base}</code> to <code>${top.label}</code> - the change as it will land`,
-              "each file once, under the first PR that touches it",
-            ],
+        perCommit ?
+          {
+            meta: {
+              title: `All ${labels.length} PRs, commit by commit`,
+              headerTitle: "all PRs",
+              eyebrow: "every PR at once",
+              lede: stackSummary(authoredLayers),
+              facts: [`${labels.length} PRs, every commit of each`],
+            },
+            commits: mergeCommits(authoredLayers),
+          }
+        : {
+            meta: {
+              title: `All ${labels.length} PRs together`,
+              headerTitle: "all PRs",
+              eyebrow: "every PR at once",
+              lede: stackSummary(authoredLayers),
+              facts: [
+                `measured from <code>${bottom.base}</code> to <code>${top.label}</code> - the change as it will land`,
+                "each file once, under the first PR that touches it",
+              ],
+            },
+            groups: mergeLayers(authoredLayers),
           },
-          groups: mergeLayers(authoredLayers),
-        },
         `img-${key}`,
       );
       reviews.push({

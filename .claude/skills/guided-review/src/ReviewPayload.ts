@@ -26,6 +26,21 @@ export type ReviewGroup = {
   /** html */
   blurb?: string;
   items: ReviewItem[];
+  /** the commit this chapter reads, when the review is authored per commit -
+      the sha of one of the review's own `commits` */
+  commit?: string;
+  /** which PR of a stack this chapter came from, in the every-PR review -
+      what the page bands the reading order by */
+  pr?: string;
+};
+
+/** one commit of a PR, as its own thing to read */
+export type ReviewCommit = {
+  sha: string;
+  short: string;
+  subject: string;
+  /** the PR this commit belongs to, in the every-PR review */
+  pr?: string;
 };
 
 export type ReviewMeta = {
@@ -116,6 +131,9 @@ export type ReviewPayload = {
   /** absolute path to the repo checkout this review was built from, so a
       file's row can link to a local editor (eg vscode://file/...) */
   repoRoot: string;
+  /** the commits this review is read through, oldest first - absent when it
+      was authored as one lump, which is every mode but a per-commit PR */
+  commits?: ReviewCommit[];
   /** present only for a conflict-resolution review - it is what enables the
       3-way view */
   conflict?: ConflictInfo;
@@ -180,7 +198,19 @@ export type ReviewShell = {
 export type ReviewFile = ReviewItem & {
   groupIndex: number;
   id: string;
+  /** the commit whose diff this row shows, where the review has commits */
+  commit?: string;
 };
+
+/** where a file's before/after lives: under its commit when the review is
+    read per commit, since the same file reads differently in each */
+export const sideKey = (path: string, commit: string | undefined): string =>
+  commit === undefined ? path : `${commit}:${path}`;
+
+/** what a tick is against: a file of a commit of a review, not just a file -
+    the same file read in two commits is two readings */
+export const tickKey = (path: string, commit: string | undefined): string =>
+  commit === undefined ? path : `${commit}:${path}`;
 
 /** what serve.ts injects into the page; absent when the page is just a file */
 export type ReviewServer = {

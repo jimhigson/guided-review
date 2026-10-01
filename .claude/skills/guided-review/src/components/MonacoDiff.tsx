@@ -29,8 +29,8 @@ const MovedFrom = ({ path }: { path: string | undefined }) =>
   );
 
 /** the three panes' headings and the key to their colours */
-const ThreeWayHead = ({ path }: { path: string }) => {
-  const side = sides[path];
+const ThreeWayHead = ({ fileKey }: { fileKey: string }) => {
+  const side = sides[fileKey];
   if (conflict === undefined) {
     return null;
   }
@@ -63,12 +63,19 @@ const ThreeWayHead = ({ path }: { path: string }) => {
 
 export type MonacoDiffProps = {
   path: string;
+  /** where this row's before/after lives - the path, or the path in a commit */
+  fileKey: string;
+  /** the commit being read, where the review is read commit by commit: its
+      diff is history, so nothing here writes back to disk */
+  commit?: string;
   fileStatus: string;
   setCounts: (counts: [number, number]) => void;
 };
 
 export const MonacoDiff = ({
   path,
+  fileKey,
+  commit,
   fileStatus,
   setCounts,
 }: MonacoDiffProps) => {
@@ -78,10 +85,10 @@ export const MonacoDiff = ({
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState<EditorStatus>({ kind: "", text: "" });
   const threeWay =
-    useStore(diffViewStore) === "threeWay" && sides[path]?.incoming !== undefined;
+    useStore(diffViewStore) === "threeWay" && sides[fileKey]?.incoming !== undefined;
 
   useEffect(() => {
-    if (sides[path] === undefined) {
+    if (sides[fileKey] === undefined) {
       return;
     }
     let live = true;
@@ -91,7 +98,7 @@ export const MonacoDiff = ({
         if (!live || host === null) {
           return;
         }
-        controls.current = createDiffEditor(monaco, host, path, fileStatus, {
+        controls.current = createDiffEditor(monaco, host, path, fileKey, commit, fileStatus, {
           setCounts,
           setDirty,
           setStatus,
@@ -109,9 +116,9 @@ export const MonacoDiff = ({
       controls.current?.dispose();
       controls.current = undefined;
     };
-  }, [path, fileStatus, setCounts]);
+  }, [path, fileKey, commit, fileStatus, setCounts]);
 
-  if (sides[path] === undefined) {
+  if (sides[fileKey] === undefined) {
     return (
       <p class="diff-missing">
         not embedded — longer than <code>--max-side-lines</code> when this
@@ -128,7 +135,7 @@ export const MonacoDiff = ({
 
   return (
     <>
-      {threeWay && <ThreeWayHead path={path} />}
+      {threeWay && <ThreeWayHead fileKey={fileKey} />}
       <div class="diff-monaco" ref={hostRef} />
       <div class="editor-bar">
         <span class="hint">

@@ -8,12 +8,15 @@
  */
 
 import {
+  type ReviewCommit,
   type ReviewFile,
   type ReviewPayload,
   type ReviewShell,
   type ShellReview,
+  sideKey,
+  tickKey,
 } from "./ReviewPayload.ts";
-import { recordReviewInUrl, reviewKeyFromUrl } from "./urlState.ts";
+import { commitKeyFromUrl, recordCommitInUrl, recordReviewInUrl, reviewKeyFromUrl } from "./urlState.ts";
 
 const parseBlock = <Parsed,>(elementId: string): Parsed => {
   const element = document.getElementById(elementId);
@@ -50,21 +53,83 @@ export let packages: ReviewPayload["packages"];
 export let packageScope: ReviewPayload["packageScope"];
 export let files: ReviewFile[];
 export let total: number;
+/** every commit of this review, oldest first - empty unless it was authored
+    commit by commit */
+export let commits: ReviewCommit[] = [];
+/** the commit being read, or undefined for all of them, which is the default:
+    a stack of commits is still one change, and reading it whole is the usual
+    way round */
+export let selectedCommit: string | undefined;
+/** which commits touch a path, so ticking it while reading them all can tick
+    it in each */
+let commitsByPath = new Map<string, string[]>();
+
+/** where a file's before/after, stats, link and image live */
+export const fileKey = (file: { path: string; commit?: string }): string =>
+  sideKey(file.path, file.commit);
+
+/** what ticking this row marks as read */
+export const tickKeyOf = (file: { path: string; commit?: string }): string =>
+  tickKey(file.path, file.commit);
+
+/** every key ticking this row should mark: reading all the commits at once,
+    a file read in one of them is read in all of them */
+export const tickKeysOf = (file: ReviewFile): string[] => {
+  if (file.commit === undefined || selectedCommit !== undefined) {
+    return [tickKeyOf(file)];
+  }
+  return (commitsByPath.get(file.path) ?? [file.commit]).map((commit) =>
+    tickKey(file.path, commit),
+  );
+};
+
+/** the files a served checkout can keep in step: a commit's diff is history,
+    and nothing on disk is that file as that commit had it */
+export const diskSyncPaths = (): string[] =>
+  files.filter((file) => file.commit === undefined).map((file) => file.path);
+
+/** every chapter of the review; `groups` is only the ones in view */
+let allGroups: ReviewPayload["groups"] = [];
 
 export const selectReview = (key: string): void => {
   const { review, block } = carriedReview(key);
   activeReview = review;
   payload = parseBlock<ReviewPayload>(block);
   ({ id: reviewId, meta, groups, sides, stats, links, images, repoRoot, conflict, packages, packageScope } = payload);
-  files = groups.flatMap((group, groupIndex) =>
+  allGroups = payload.groups;
+  commits = payload.commits ?? [];
+  commitsByPath = new Map();
+  for (const group of groups) {
+    if (group.commit === undefined) {
+      continue;
+    }
+    for (const item of group.items) {
+      commitsByPath.set(item.path, [
+        ...(commitsByPath.get(item.path) ?? []),
+        group.commit,
+      ]);
+    }
+  }
+  recordReviewInUrl(key);
+  const wanted = commitKeyFromUrl();
+  selectCommit(wanted !== undefined && commits.some((commit) => commit.sha === wanted) ? wanted : undefined);
+};
+
+/** read one commit of this review, or all of them (undefined) */
+export const selectCommit = (sha: string | undefined): void => {
+  selectedCommit = sha;
+  const inView = sha === undefined ? allGroups : allGroups.filter((group) => group.commit === sha);
+  groups = inView;
+  files = inView.flatMap((group, groupIndex) =>
     group.items.map((item, itemIndex) => ({
       ...item,
       groupIndex,
       id: `${groupIndex}-${itemIndex}`,
+      ...(group.commit === undefined ? {} : { commit: group.commit }),
     })),
   );
   total = files.length;
-  recordReviewInUrl(key);
+  recordCommitInUrl(sha);
 };
 
 const isCarried = (key: string): boolean =>

@@ -9,6 +9,20 @@ export type ReviewSwitcher = (
 
 let switcher: ReviewSwitcher = () => {};
 
+/** switching commit is the same kind of move as switching review: the files
+    in view change, so the app remounts around them */
+export type CommitSwitcher = (sha: string | undefined) => void;
+
+let commitSwitcher: CommitSwitcher = () => {};
+
+export const setCommitSwitcher = (next: CommitSwitcher): void => {
+  commitSwitcher = next;
+};
+
+export const selectCommitAndRemount = (sha: string | undefined): void => {
+  commitSwitcher(sha);
+};
+
 export const setReviewSwitcher = (next: ReviewSwitcher): void => {
   switcher = next;
 };

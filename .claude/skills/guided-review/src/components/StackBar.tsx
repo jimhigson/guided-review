@@ -1,10 +1,11 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 
 import { activeReview, files, shell, total } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { type ShellReview } from "../ReviewPayload.ts";
 import { switchReview } from "../reviewSwitch.ts";
 import { loadStackProgress, setSiblingTicked, stackProgressStore } from "../stackProgress.ts";
+import { keepCurrentInView } from "./barScroll.ts";
 import { useStore } from "../stores.ts";
 
 export type StackBarProps = { state: ReadingState };
@@ -22,10 +23,14 @@ export type StackBarProps = { state: ReadingState };
  */
 export const StackBar = ({ state }: StackBarProps) => {
   const progress = useStore(stackProgressStore);
+  const bar = useRef<HTMLElement>(null);
 
   useEffect(() => {
     loadStackProgress();
   }, []);
+
+  // a long stack scrolls; the one being read should be on screen when it does
+  useEffect(() => keepCurrentInView(bar.current), []);
 
   if (shell.reviews.length < 2) {
     return null;
@@ -71,8 +76,26 @@ export const StackBar = ({ state }: StackBarProps) => {
   };
 
   return (
-    <nav class="stack-bar" aria-label="PR stack">
+    <nav class="stack-bar bar-scrolls" aria-label="PR stack" ref={bar}>
+      <span class="bar-pinned">
       <span class="stack-label">stack</span>
+      {everyLayer !== undefined && (
+        // not a step of the chain - a way of reading the whole chain at once,
+        // so it sits apart from the arrows rather than in them. A plain
+        // button, not a checkbox: the checkboxes along this bar mean "every
+        // file of this one is read", and this means "show me all of them"
+        <button
+          type="button"
+          class={`stack-all ${readingEveryLayer ? "is-current" : ""}`}
+          aria-pressed={readingEveryLayer}
+          title={`${everyLayer.title} - every file once, with what each PR said about it`}
+          disabled={readingEveryLayer}
+          onClick={() => switchReview(everyLayer.key)}
+        >
+          all
+        </button>
+      )}
+      </span>
       {layers.map((review, index) => (
         <span class="stack-step" key={review.key}>
           {index > 0 && <span class="stack-arrow">→</span>}
@@ -132,22 +155,6 @@ export const StackBar = ({ state }: StackBarProps) => {
           }
         </span>
       ))}
-      {everyLayer !== undefined && (
-        // not a step of the chain - a way of reading the whole chain at once,
-        // so it sits apart from the arrows rather than in them. A plain
-        // button, not a checkbox: the checkboxes along this bar mean "every
-        // file of this one is read", and this means "show me all of them"
-        <button
-          type="button"
-          class={`stack-all ${readingEveryLayer ? "is-current" : ""}`}
-          aria-pressed={readingEveryLayer}
-          title={`${everyLayer.title} - every file once, with what each PR said about it`}
-          disabled={readingEveryLayer}
-          onClick={() => switchReview(everyLayer.key)}
-        >
-          all
-        </button>
-      )}
     </nav>
   );
 };

@@ -3,7 +3,7 @@ import { useState } from "preact/hooks";
 
 import { buildFsTree, filesUnder, type FsTreeNode } from "../fsTree.ts";
 import { notesStore } from "../notes.ts";
-import { files } from "../payload.ts";
+import { files, tickKeyOf } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { useStore } from "../stores.ts";
 import { withMembership } from "../ticks.ts";
@@ -46,7 +46,7 @@ export const FsTree = ({ state }: FsTreeProps) => {
     }
 
     const descendants = filesUnder(node);
-    const done = descendants.filter((file) => state.ticked.has(file.path)).length;
+    const done = descendants.filter((file) => state.ticked.has(tickKeyOf(file))).length;
     const open = !collapsedDirs.has(node.path);
 
     return (

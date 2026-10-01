@@ -8,16 +8,25 @@ import { followPageTheme } from "./monacoLoader.ts";
 import { loadNotes, messagesOf, type Note, noteAt, type Notes, notesStore } from "./notes.ts";
 import { githubStore, loadGithub } from "./github.ts";
 import { type GithubReview } from "./githubTypes.ts";
-import { activeReviewIsEditable, meta, reviewId, selectReview, server } from "./payload.ts";
-import { setReviewSwitcher } from "./reviewSwitch.ts";
+import {
+  activeReviewIsEditable,
+  meta,
+  reviewId,
+  selectCommit,
+  selectReview,
+  server,
+} from "./payload.ts";
+import { setCommitSwitcher, setReviewSwitcher } from "./reviewSwitch.ts";
 import { toast } from "./stores.ts";
 // applies the remembered theme as a side effect of import, ahead of the
 // first render
 import "./theme.ts";
 import {
   adoptTicks,
+  currentTicks,
   getLastFromServer,
   loadTicks,
+  setCurrentTicks,
   setLastFromServer,
   ticksAreInFlight,
   ticksSignature,
@@ -133,6 +142,7 @@ const main = async (): Promise<void> => {
     await loadNotes();
     await loadGithub();
     const ticks = await loadTicks();
+    setCurrentTicks(ticks);
     setLastFromServer(ticksSignature(ticks));
     mountApp(root, ticks);
     startImageStatsSweep();
@@ -141,9 +151,17 @@ const main = async (): Promise<void> => {
     switchTo(key);
   });
 
+  // a commit switch changes which files are in view, not which review they
+  // belong to: the notes and ticks are the same store, so only the app remounts
+  setCommitSwitcher((sha) => {
+    selectCommit(sha);
+    mountApp(root, currentTicks());
+  });
+
   await loadNotes();
   await loadGithub();
   const initialTicks = await loadTicks();
+  setCurrentTicks(initialTicks);
   setLastFromServer(ticksSignature(initialTicks));
   mountApp(root, initialTicks);
 
