@@ -6,6 +6,8 @@ import { imageStatsStore, startImageStatsSweep } from "./imageDiff/imageStats.ts
 import { liveEditors } from "./liveEditors.ts";
 import { followPageTheme } from "./monacoLoader.ts";
 import { loadNotes, messagesOf, type Note, noteAt, type Notes, notesStore } from "./notes.ts";
+import { githubStore, loadGithub } from "./github.ts";
+import { type GithubReview } from "./githubTypes.ts";
 import { activeReviewIsEditable, meta, reviewId, selectReview, server } from "./payload.ts";
 import { setReviewSwitcher } from "./reviewSwitch.ts";
 import { toast } from "./stores.ts";
@@ -29,6 +31,8 @@ import "./page.css";
 type ServerState = {
   notes: Notes;
   ticked: string[];
+  /** the PR's comments, when this review has a PR and prComments.ts has read it */
+  github?: GithubReview | null;
   /** path -> the sha its content currently hashes to on disk */
   files: Record<string, string>;
 };
@@ -94,6 +98,10 @@ const pollState = async (): Promise<void> => {
     }
   }
 
+  if (JSON.stringify(state.github ?? null) !== JSON.stringify(githubStore.get() ?? null)) {
+    githubStore.set(state.github ?? undefined);
+  }
+
   await reconcileFiles(state.files);
 };
 
@@ -123,16 +131,18 @@ const main = async (): Promise<void> => {
     selectReview(key);
     imageStatsStore.set({});
     await loadNotes();
+    await loadGithub();
     const ticks = await loadTicks();
     setLastFromServer(ticksSignature(ticks));
     mountApp(root, ticks);
     startImageStatsSweep();
   };
-  setReviewSwitcher((number) => {
-    switchTo(number);
+  setReviewSwitcher((key) => {
+    switchTo(key);
   });
 
   await loadNotes();
+  await loadGithub();
   const initialTicks = await loadTicks();
   setLastFromServer(ticksSignature(initialTicks));
   mountApp(root, initialTicks);

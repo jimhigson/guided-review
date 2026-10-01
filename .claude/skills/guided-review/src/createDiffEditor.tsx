@@ -9,8 +9,11 @@
 
 import { render } from "preact";
 
+import { GithubThread } from "./components/GithubThread.tsx";
 import { focusNoteOnLine, NoteZone } from "./components/NoteZone.tsx";
 import { type DiffView, diffViewStore, showsBothSides } from "./diffView.ts";
+import { githubStore } from "./github.ts";
+import { threadsOnLine } from "./githubTypes.ts";
 import { notifyDiskConflict } from "./diskConflict.ts";
 import { fetchFileFromDisk } from "./fileSync.ts";
 import { type FileFromDisk, liveEditors } from "./liveEditors.ts";
@@ -485,6 +488,10 @@ export const createDiffEditor = (
         ...notesFor(path).map((note) => note.line),
         ...(editing === undefined ? [] : [editing]),
       ]);
+      // a PR thread sits on its own line too, and several can share one - they
+      // are their own zones rather than part of the note's. Resolved ones stay,
+      // folded to a line by the thread itself
+      const prThreads = threadsOnLine(githubStore.get()?.threads ?? [], path);
 
       modifiedEditor.changeViewZones((accessor) => {
         for (const id of zoneIds) {
@@ -495,19 +502,12 @@ export const createDiffEditor = (
         }
         zoneObservers = [];
         zones = [];
-        zoneIds = [...lines].map((line) => {
+        const zoneFor = (
+          line: number,
+          content: preact.VNode,
+        ): string => {
           const domNode = document.createElement("div");
-          render(
-            <NoteZone
-              path={path}
-              line={line}
-              done={() => {
-                editing = undefined;
-                drawNotes();
-              }}
-            />,
-            domNode,
-          );
+          render(content, domNode);
           const zone: MonacoViewZone = {
             afterLineNumber: line,
             // a first guess only - resized to the real content just below
@@ -519,16 +519,31 @@ export const createDiffEditor = (
           };
           const id = accessor.addZone(zone);
           zones.push(zone);
-          const content = domNode.firstElementChild;
-          if (content instanceof HTMLElement) {
-            zoneObservers.push(watchZoneHeight(id, zone, content));
+          const rendered = domNode.firstElementChild;
+          if (rendered instanceof HTMLElement) {
+            zoneObservers.push(watchZoneHeight(id, zone, rendered));
           } else if (import.meta.env.DEV) {
-            throw new Error(
-              "NoteZone was required here but rendered no root element",
-            );
+            throw new Error("a zone was required here but rendered no root element");
           }
           return id;
-        });
+        };
+
+        zoneIds = [
+          ...[...lines].map((line) =>
+            zoneFor(
+              line,
+              <NoteZone
+                path={path}
+                line={line}
+                done={() => {
+                  editing = undefined;
+                  drawNotes();
+                }}
+              />,
+            ),
+          ),
+          ...prThreads.map((thread) => zoneFor(thread.line, <GithubThread thread={thread} />)),
+        ];
       });
       reportZones();
 
@@ -543,6 +558,9 @@ export const createDiffEditor = (
         })),
       );
     };
+
+    // a comment arriving from the forge draws itself in, the same as a note
+    const stopFollowingGithub = githubStore.subscribe(() => drawNotes());
 
     listeners.push(
       modifiedEditor.addAction({
@@ -604,6 +622,7 @@ export const createDiffEditor = (
 
     return () => {
       drawNotes = () => {};
+      stopFollowingGithub();
       for (const zoneObserver of zoneObservers) {
         zoneObserver.disconnect();
       }

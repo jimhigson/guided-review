@@ -11,6 +11,7 @@ import { Group } from "./Group.tsx";
 import { Header } from "./Header.tsx";
 import { Intro } from "./Intro.tsx";
 import { ContentsTab } from "./ContentsTab.tsx";
+import { PrConversation } from "./PrConversation.tsx";
 import { contentsWouldOverlay, Layout, useContentsOverlays } from "./Layout.tsx";
 import { Toasts } from "./Toasts.tsx";
 
@@ -190,6 +191,7 @@ export const App = ({ initialTicks }: AppProps) => {
       <Layout state={state} overlays={overlays}>
         <div class="shell">
           <Intro />
+          <PrConversation />
           <main>
             {groups.map((group, index) => (
               <Group

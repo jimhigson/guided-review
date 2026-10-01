@@ -38,6 +38,7 @@ in the middle:
 | `src/` | the page itself — a preact app in tsx: palette, layout, contents sidebar, diff rendering, the image compare viewer, notes, checkboxes |
 | `buildPage.ts` | bundles `src/` to the one script and one stylesheet `build.ts` inlines |
 | `serve.ts` | serves the built page — how a review is normally delivered; its editors become editable and save back to the working tree |
+| `prComments.ts` | a served page → its PRs' comments from GitHub, written beside each review for the page to show |
 | `awaitNotes.ts` | tells you each reviewer note as it's written - streaming, or `--once` per note, however your host can best be woken (see "Keeping the notes channel open") - so you act on it while they are still reading |
 | `ackNote.ts` | confirms you've seen a note, before you have an answer for it - turns "sent, waiting for an agent" into "the agent is on it" honestly |
 | `reply.ts` | answers a note in its own thread — what you did, or the one question you need answered |
@@ -258,7 +259,11 @@ exist. `fixtures/localStack.sh <new dir>` builds a three-layer local stack to
 try it on.
 
 **One review per page is editable**: the one whose head branch the served
-`--repo` checkout has on disk (`serve.ts` matches and tells the page). The
+`--repo` checkout actually has on disk - including when the page carries only
+that one review. A commit or working-tree review names no branch and reviews
+the checkout itself, so it is always the editable one; a PR review served from
+a checkout of some other branch is read-only, because the files there are not
+the files it is about (`serve.ts` matches and tells the page). The
 others' Monaco editors are read-only, but their notes, replies and ticks work
 in full — each review has its own `notes.json`/`ticks.json` under its own id,
 so `awaitNotes.ts`/`reply.ts` point at whichever review's store the note
@@ -536,6 +541,51 @@ and *what* is being reviewed (the commit, the pr number, the branch for a
 working tree) rather than from where the html was written, so the same review
 rebuilt tomorrow resumes; `--id` overrides it when two reviews of one scope
 need to stay apart.
+
+### Comments already on the PR
+
+A PR being reviewed here usually has comments on GitHub too - a colleague's,
+or an automated reviewer's. Bring them into the page:
+
+```bash
+node .claude/skills/guided-review/prComments.ts --html <scratchpad>/review.html --repo . --watch 60
+```
+
+Each carried review finds its own PR (its number when it is a stacked PR,
+else whatever PR its head branch has) and its comments are written to
+`<store>/github.json`, which the page's existing poll picks up within a couple
+of seconds. `--watch` keeps reading, so comments left while the review is open
+appear in it; run it in the background beside `serve.ts`. A review with no PR
+behind it - a commit, a working tree, a stack layer nobody has pushed - is
+skipped, and the page shows none of this.
+
+In the page:
+
+- **An inline review thread sits on its line**, in the diff, marked *GitHub*
+  and carrying each comment with its author and age, and a link to the thread
+  on the forge.
+- **A thread with nowhere to sit** - one about a line the change removes, or
+  left behind when the branch moved on (the forge calls that *outdated*) -
+  goes under the file's row instead, flagged with why.
+- **A resolved thread folds to one line**, and opens again on a click. It is
+  not hidden: replying to a thread can resolve it on the forge (GitHub does
+  this to its own reviewer's threads), and a thread that vanished the instant
+  you answered it would look like the reply had gone nowhere. A thread you
+  reply to here stays open for the rest of the session.
+- **The row's path carries a count** of the file's unresolved threads, in the
+  `--pr` colour, beside the count of local notes.
+- **The PR's own conversation and each review's verdict** sit in a collapsible
+  strip above the reading order.
+
+**Replying posts to GitHub**, as whoever `gh` is signed in as - from the box
+in a thread, or from the strip for the PR itself. It only ever happens on a
+deliberate click in the page, and the thread shows the reply straight away
+because the server re-reads the PR as it posts. Nothing is posted by the
+agent, by the watch, or by opening the page.
+
+Tell the reviewer the difference between the two kinds of comment in the page:
+a **note** is for you, the agent, and stays local; a **GitHub reply** goes to
+the PR, where the rest of the team will see it.
 
 ### Act on notes as they are written
 

@@ -57,6 +57,9 @@ type ShellReview = {
   baseSha?: string;
 };
 
+import { commentOnPr, fetchPrComments, replyToThread } from "./github.ts";
+import { type GithubReview } from "./src/githubTypes.ts";
+
 const marker = "<!--REVIEW_SERVER-->";
 const shellPattern = /<script type="application\/json" id="shell">(?<json>[\s\S]*?)<\/script>/;
 
@@ -180,6 +183,8 @@ class ReviewStore {
   notesFile: string;
   notesMarkdown: string;
   ticksFile: string;
+  /** what prComments.ts last read off the forge for this review */
+  githubFile: string;
   #seen: Set<string>;
 
   constructor(htmlDir: string, id: string, label: string, baseSha: string) {
@@ -191,6 +196,7 @@ class ReviewStore {
     this.notesFile = join(dir, "notes.json");
     this.notesMarkdown = join(dir, "notes.md");
     this.ticksFile = join(dir, "ticks.json");
+    this.githubFile = join(dir, "github.json");
     this.#seen = flatten(this.readNotes());
   }
 
@@ -211,6 +217,21 @@ class ReviewStore {
 
   writeTicks(ticked: string[]): void {
     writeFileSync(this.ticksFile, JSON.stringify(ticked, null, 2), "utf8");
+  }
+
+  /** the PR's comments, when prComments.ts has read them - undefined when it
+      hasn't run, or the review has no PR behind it at all */
+  readGithub(): GithubReview | undefined {
+    const raw = ReviewStore.read(this.githubFile);
+    if (raw === "") {
+      return undefined;
+    }
+    try {
+      return JSON.parse(raw) as GithubReview;
+    } catch {
+      // written while being read, like the notes - the next poll gets it whole
+      return undefined;
+    }
   }
 
   readNotes(): Notes {
@@ -338,13 +359,18 @@ class ReviewPage {
   }
 
   /** the review whose head branch the served checkout has on disk - the only
-      one allowed to save back. A single-review page edits the checkout by
-      definition (worktree and commit modes have no head to match) */
+      one allowed to save back, and the only one whose files are synced from
+      disk at all. A review with no head names no branch to be on (worktree and
+      commit modes review the checkout itself), so it is editable by
+      definition; one that does name a branch has to actually be on it, even
+      when it is the only review in the page. Without that check a PR served
+      from a checkout of some other branch reads that checkout's files over the
+      diff - and a file the branch doesn't have reads as empty. */
   editableReviewId(): string | undefined {
     this.#refreshShell();
     const carried = this.#reviews.filter((review) => review.reviewId !== undefined);
     const [only] = carried;
-    if (carried.length === 1) {
+    if (carried.length === 1 && only?.head === undefined) {
       return only?.reviewId;
     }
     const checkedOut = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -502,6 +528,14 @@ const handleGet = (
     respondJson(response, 200, store.readNotes());
     return;
   }
+  if (path === "/github") {
+    if (store === undefined) {
+      respondJson(response, 404, { error: "unknown review" });
+      return;
+    }
+    respondJson(response, 200, store.readGithub() ?? null);
+    return;
+  }
   if (path === "/ticks") {
     if (store === undefined) {
       respondJson(response, 404, { error: "unknown review" });
@@ -571,8 +605,36 @@ const handlePost = (
     respondJson(response, 200, {
       notes: store.readNotes(),
       ticked: store.readTicks(),
+      github: store.readGithub() ?? null,
       files: editable ? reviewPage.fileState((body.paths as string[]) ?? []) : {},
     });
+    return;
+  }
+  /* answering a PR comment from the page: the reply is posted to the forge as
+     whoever `gh` is signed in as, so it only ever happens on a deliberate
+     click - and the fresh state goes straight back, so the thread shows the
+     reply without waiting for prComments.ts to come round again */
+  if (path === "/github-reply") {
+    const pr = Number(body.pr);
+    const text = String(body.body ?? "");
+    if (!Number.isInteger(pr) || text.trim() === "") {
+      respondJson(response, 400, { error: "a reply needs a pr and something to say" });
+      return;
+    }
+    try {
+      if (body.replyTo === undefined) {
+        commentOnPr(reviewPage.repo, pr, text);
+        console.log(`  commented on #${pr}`);
+      } else {
+        replyToThread(reviewPage.repo, pr, Number(body.replyTo), text);
+        console.log(`  replied on #${pr} thread ${String(body.replyTo)}`);
+      }
+      const fresh = fetchPrComments(reviewPage.repo, pr);
+      writeFileSync(store.githubFile, `${JSON.stringify(fresh, null, 2)}\n`, "utf8");
+      respondJson(response, 200, fresh);
+    } catch (error) {
+      respondJson(response, 502, { error: (error as Error).message.split("\n")[0] });
+    }
     return;
   }
   if (path === "/file") {

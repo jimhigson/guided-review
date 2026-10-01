@@ -1740,6 +1740,152 @@ a.stack-pr:focus-visible, button.stack-pr:focus-visible {
   border-color: var(--pr);
 }
 
+/* ---- comments from the forge ------------------------------------------
+   a PR's own review threads, shown where they were written. Read-only but for
+   the reply box: resolving and editing belong on the forge */
+
+.gh-badge {
+  font-family: var(--body);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--pr);
+  background: var(--pr-bg);
+  border: 1px solid var(--pr-edge);
+  border-radius: 3px;
+  padding: 0 0.3em;
+  flex: none;
+}
+
+.gh-thread {
+  position: relative;
+  z-index: 1;
+  margin: 0.2rem 0.6rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--card);
+  border: 1px solid var(--pr-edge);
+  border-left: 3px solid var(--pr);
+  font-family: var(--body);
+}
+
+.gh-thread.is-resolved { opacity: 0.6; }
+
+/* resolved, so folded to one line - still there to open, because a thread
+   that resolves while it is being read (or because of the reply just sent to
+   it) must not simply disappear */
+.gh-thread.is-folded { padding: 0.15rem 0.4rem; border-left-width: 2px; }
+
+.gh-unfold {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: var(--body);
+  font-size: 1rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-align: left;
+}
+
+.gh-folded-line {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-faint);
+}
+
+.gh-unfold:hover .gh-folded-line { color: var(--ink); }
+
+.gh-thread-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+}
+
+.gh-flag {
+  font-size: 0.95rem;
+  color: var(--mod);
+  background: var(--mod-bg);
+  padding: 0 0.3em;
+}
+
+.gh-open { margin-left: auto; font-size: 1rem; color: var(--accent); }
+
+.gh-comment + .gh-comment { margin-top: 0.4rem; border-top: 1px solid var(--rule); padding-top: 0.4rem; }
+.gh-author { font-weight: 600; font-size: 1rem; color: var(--ink); }
+.gh-when { font-size: 0.95rem; color: var(--ink-faint); margin-left: 0.4rem; }
+.gh-verdict { font-size: 0.95rem; margin-left: 0.4rem; color: var(--ink-soft); }
+.verdict-APPROVED { color: var(--new); }
+.verdict-CHANGES_REQUESTED { color: var(--del); }
+
+/* the body is the comment as written: markdown, shown as the text it is
+   rather than rendered - a review page is not a markdown host, and its line
+   breaks are most of its meaning */
+.gh-body {
+  margin: 0.15rem 0 0;
+  font-size: 1rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+  max-width: 78ch;
+}
+
+.gh-reply { display: flex; gap: 0.4rem; margin-top: 0.45rem; align-items: flex-start; }
+.gh-reply textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--body);
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 0.3rem 0.4rem;
+  resize: vertical;
+}
+.gh-reply textarea:focus-visible { outline: 2px solid var(--pr); outline-offset: 1px; }
+
+/* threads with nowhere to sit in the diff, under the row instead */
+.gh-stranded { margin-top: 0.4rem; }
+.gh-stranded .gh-thread { margin-left: 0; margin-right: 0; }
+
+.note-count.gh-count { color: var(--pr); background: var(--pr-bg); border: 1px solid var(--pr-edge); }
+
+/* nothing left open on this file - the count is only there to say the
+   conversation happened */
+.note-count.gh-count.all-resolved {
+  color: var(--ink-faint);
+  background: none;
+  border-color: var(--rule);
+}
+
+/* the PR's own conversation, above the reading order it is about */
+.pr-talk { border: 1px solid var(--rule); background: var(--card); }
+
+.pr-talk-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.7rem;
+  background: none;
+  border: 0;
+  font-family: var(--body);
+  font-size: 1rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-align: left;
+}
+
+.pr-talk-number { color: var(--pr); font-family: var(--mono); }
+.pr-talk-counts { color: var(--ink); }
+.pr-talk-when { margin-left: auto; color: var(--ink-faint); }
+.pr-talk-body { padding: 0.2rem 0.7rem 0.6rem; }
+
 /* the whole-stack review leads with what each PR of the stack does, in its
    own author's words - one block apiece inside the lede */
 .pr-summary { display: block; }

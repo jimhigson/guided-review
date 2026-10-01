@@ -6,10 +6,13 @@ import { imageStatsStore, mechanicalNote } from "../imageDiff/imageStats.ts";
 import { editors, editorStore } from "../editor.ts";
 import { firstChangedLine } from "../firstChangedLine.ts";
 import { notesStore } from "../notes.ts";
+import { githubStore } from "../github.ts";
+import { threadsOffLine } from "../githubTypes.ts";
 import { conflict, images, links, repoRoot, stats, statusLabel } from "../payload.ts";
 import { type ImageRow, type ReviewFile } from "../ReviewPayload.ts";
 import { registerRow, unregisterRow } from "../rowNodes.ts";
 import { useStore } from "../stores.ts";
+import { GithubThread } from "./GithubThread.tsx";
 import { MonacoDiff } from "./MonacoDiff.tsx";
 import { PathLabel } from "./PathLabel.tsx";
 
@@ -57,6 +60,13 @@ export const Row = ({
   // survives the file being ticked away and reopened
   const [mounted, setMounted] = useState(false);
   const notes = useStore(notesStore)[file.path] ?? [];
+  const prThreads = (useStore(githubStore)?.threads ?? []).filter(
+    (thread) => thread.path === file.path,
+  );
+  const openThreads = prThreads.filter((thread) => !thread.resolved).length;
+  // the diff can hold a thread on a line of the changed side; one about a line
+  // the change removed, or left behind by a push, has nowhere to go there
+  const strandedThreads = threadsOffLine(prThreads, file.path);
   const imageRow = images[file.path];
   const imageStats = useStore(imageStatsStore)[file.path];
   const editor = editors[useStore(editorStore)];
@@ -163,6 +173,17 @@ export const Row = ({
           {editor.label} ↗
         </a>
         {notes.length > 0 && <span class="note-count">{notes.length}</span>}
+        {prThreads.length > 0 && (
+          <span
+            class={`note-count gh-count ${openThreads === 0 ? "all-resolved" : ""}`}
+            title={
+              `${prThreads.length} GitHub thread(s) on this file` +
+              (openThreads === prThreads.length ? "" : `, ${openThreads} unresolved`)
+            }
+          >
+            {openThreads === 0 ? prThreads.length : openThreads}
+          </span>
+        )}
         <button
           type="button"
           class="caret"
@@ -237,6 +258,13 @@ export const Row = ({
             </div>
           )}
         </div>
+        {strandedThreads.length > 0 && (
+          <div class="gh-stranded">
+            {strandedThreads.map((thread) => (
+              <GithubThread key={thread.id} thread={thread} />
+            ))}
+          </div>
+        )}
         {imageRow !== undefined && <ImageFileNote path={file.path} />}
       </div>
     </div>
