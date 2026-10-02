@@ -956,7 +956,8 @@ diffs stay in `ui-monospace`.
 
 - Sticky header: live progress bar and checked/total count,
   open-everything, close-everything, clear-ticks, and a **Diffs select**
-  (inline / side by side, plus 3-way on a conflict review only).
+  (side by side, which is the default, / inline, plus 3-way on a conflict
+  review only).
 - **The contents is opened from the edge it lives on**, not from the header: a
   vertical *Contents* tab fixed to the left of the viewport, shown only while
   the contents is closed. Closing it is a chevron inside the sidebar's own
@@ -1066,8 +1067,9 @@ diffs stay in `ui-monospace`.
   image row has an Add note button opening the same thread UI as a line note,
   stored at line 0; `reply.ts --line 0` answers it and the markdown twin shows
   it as `L0`.
-- **Inline or side by side** is the header's Diffs select, applied to every
-  editor at once — `diffViewStore` is read when an editor is built and
+- **Side by side or inline** is the header's Diffs select, applied to every
+  editor at once. **Side by side is the default**: before and after are what a
+  reviewer compares, and inline asks them to do that down one column — `diffViewStore` is read when an editor is built and
   subscribed to for the ones already on screen, and remembered in
   localStorage per reader. Side by side needs asking for **twice**:
   `renderSideBySide: true` alone does nothing in a pane this narrow, because

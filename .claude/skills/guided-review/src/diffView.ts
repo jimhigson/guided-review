@@ -1,4 +1,6 @@
-/* inline, side-by-side or 3-way, for every diff on the page at once.
+/* side-by-side, inline or 3-way, for every diff on the page at once. Side by
+   side until told otherwise: before and after are what a reviewer is
+   comparing, and an inline diff makes that comparison out of a single column.
    Remembered per reader rather than per review - which way you read a diff is
    a habit, not something to re-choose for each change. Conflict reviews keep a
    choice of their own, defaulting to 3-way: it is the reason to build one, and
@@ -17,7 +19,7 @@ const conflictStorageKey = "guidedReviewConflictDiffView";
 export const threeWayAvailable = (): boolean => conflict !== undefined;
 
 const remembered = (): DiffView => {
-  const fallback: DiffView = threeWayAvailable() ? "threeWay" : "inline";
+  const fallback: DiffView = threeWayAvailable() ? "threeWay" : "sideBySide";
   try {
     const stored = localStorage.getItem(threeWayAvailable() ? conflictStorageKey : storageKey);
     return (
