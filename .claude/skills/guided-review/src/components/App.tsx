@@ -13,7 +13,7 @@ import {
   tickKeysOf,
 } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
-import { type ReviewFile } from "../ReviewPayload.ts";
+import { type ReviewFile, uncommittedRef } from "../ReviewPayload.ts";
 import { holdActiveFile, scrollToRow, watchRows } from "../rowNodes.ts";
 import { adoptTicks, saveTicks, withMembership } from "../ticks.ts";
 import { filePathFromUrl, recordFileInUrl } from "../urlState.ts";
@@ -239,7 +239,9 @@ export const App = ({ initialTicks }: AppProps) => {
                 {pr !== undefined && <h1 class="band band-pr">{pr}</h1>}
                 {commit !== undefined && (
                   <h2 class="band band-commit">
-                    <span class="commit-sha">{commit.short}</span>
+                    <span class={`commit-sha ${commit.sha === uncommittedRef ? "is-uncommitted" : ""}`}>
+                      {commit.short}
+                    </span>
                     <span class="band-subject">{commit.subject}</span>
                   </h2>
                 )}

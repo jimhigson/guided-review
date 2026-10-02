@@ -1815,6 +1815,15 @@ a.stack-pr:focus-visible, button.stack-pr:focus-visible {
 }
 
 .commit-sha { font-family: var(--mono); flex: none; }
+
+/* not a commit at all: what is changed here and not committed yet. It wears
+   the modified colour the rows do, rather than a sha's monospace calm */
+.commit-sha.is-uncommitted {
+  font-family: var(--body);
+  color: var(--mod);
+}
+
+.commit-step.is-current .commit-sha.is-uncommitted { color: var(--pr-ink); }
 .commit-subject { overflow: hidden; text-overflow: ellipsis; }
 .commit-step.is-current .commit-sha { color: var(--pr-ink); }
 

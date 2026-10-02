@@ -15,6 +15,7 @@ import {
   type ShellReview,
   sideKey,
   tickKey,
+  uncommittedRef,
 } from "./ReviewPayload.ts";
 import { commitKeyFromUrl, recordCommitInUrl, recordReviewInUrl, reviewKeyFromUrl } from "./urlState.ts";
 
@@ -86,7 +87,9 @@ export const tickKeysOf = (file: ReviewFile): string[] => {
 /** the files a served checkout can keep in step: a commit's diff is history,
     and nothing on disk is that file as that commit had it */
 export const diskSyncPaths = (): string[] =>
-  files.filter((file) => file.commit === undefined).map((file) => file.path);
+  files
+    .filter((file) => file.commit === undefined || file.commit === uncommittedRef)
+    .map((file) => file.path);
 
 /** every chapter of the review; `groups` is only the ones in view */
 let allGroups: ReviewPayload["groups"] = [];

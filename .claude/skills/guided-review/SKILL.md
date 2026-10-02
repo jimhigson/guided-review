@@ -1,6 +1,6 @@
 ---
 name: guided-review
-description: Build an ordered, locally-served HTML reading order for a large commit, PR, working tree or conflict resolution, grouped by theme, with each file's diff inline in an editable Monaco editor (2-way, or 3-way current | resolution | incoming for a conflict), per-line review notes, and a pan/zoom compare viewer for changed images. Use when a commit/PR is too large to read file-by-file in git-log order and the user wants a guided path through it; to review changed Playwright screenshot baselines / any image diffs visually (the scripted snapshots-only mode needs no authoring at all); and offer it, unasked, straight after you (or another agent) resolve non-trivial merge, rebase, cherry-pick or revert conflicts - before the operation is continued or committed - so the user can check the resolution against both sides.
+description: Build an ordered, locally-served HTML reading order for a large commit, PR (by number, branch or github url - the repo need not be checked out here), working tree or conflict resolution, grouped by theme, with each file's diff inline in an editable Monaco editor (2-way, or 3-way current | resolution | incoming for a conflict), per-line review notes, and a pan/zoom compare viewer for changed images. Use when a commit/PR is too large to read file-by-file in git-log order and the user wants a guided path through it; to review changed Playwright screenshot baselines / any image diffs visually (the scripted snapshots-only mode needs no authoring at all); and offer it, unasked, straight after you (or another agent) resolve non-trivial merge, rebase, cherry-pick or revert conflicts - before the operation is continued or committed - so the user can check the resolution against both sides.
 ---
 
 # Guided review
@@ -29,6 +29,7 @@ in the middle:
 | file | does |
 | --- | --- |
 | `resolvePr.sh` | a PR number/branch/url → the local refs to diff, fetched (forks included) |
+| `remotePr.ts` | a pr url (or `owner/name#n`) → the same, cloning the repo bare and blobless when this machine hasn't got it |
 | `resolveStack.ts` | the same target, or `--stack` for a `gh stack` (pushed or not) → the whole stack it belongs to, for the page's stack bar |
 | `buildStack.ts` | every authored review of a stack (one groups json per PR, from however many agents) → ONE page with an in-place review switcher |
 | `changedFiles.sh` | the scope's file list as `STATUS<TAB>PATH`, binaries dropped — except raster images, which get compare viewers |
@@ -72,6 +73,26 @@ anything else, since it changes every git command downstream:
 
 - **A single commit.** You have a SHA (or the user said "commit
   \<sha\>"). The diff is exactly `git show <sha>`.
+- **A PR on GitHub, with or without the repo here.** A url - or "help me
+  review <url>" - is enough. `remotePr.ts` resolves it: in a checkout of that
+  repo it fetches the PR's refs into it, as `resolvePr.sh` does; anywhere else
+  (another repo, a home directory, `/tmp`) it clones the repo **bare and
+  blobless** into a cache and reads from that - no working tree, nothing
+  checked out, and only the file versions the review opens are ever fetched. A
+  repo that is hundreds of megabytes checked out costs a few hundred kilobytes
+  this way, and the second review of it is a fetch rather than a clone.
+
+  ```bash
+  node .claude/skills/guided-review/remotePr.ts https://github.com/owner/name/pull/34
+  ```
+
+  It prints `{number, title, url, base, head, repo}`. Pass that `repo` to
+  every later command as `--repo`, including `serve.ts`. Served from a cache
+  clone the review is read-only - there is no checkout to save edits into -
+  but notes, ticks, the diffs and the PR's own comments all work. Use this
+  whenever the user names a PR you have no checkout for; do not ask them to
+  clone it first.
+
 - **A whole PR.** You have a PR number, a branch name, or the user just
   said "review this PR"/"review my branch". A PR is usually several
   commits — the diff is everything since it diverged from its base, which
@@ -446,6 +467,12 @@ of as one lump - replace `groups` with `commits`:
   which is the point. Write its note for *that* commit: what this step did and
   why, not a summary of the file.
 - `groups` and `commits` are alternatives. The build refuses both.
+- **`"ref": "uncommitted"`** is the one ref that isn't a commit: what the
+  working tree has that is not committed at all, read against `HEAD` (and
+  against nothing for a file git has never seen). Put it last - it is where
+  the branch has got to since its last commit. Its rows are the files on disk,
+  so unlike a commit's they stay **editable** and keep in step with disk;
+  everything else in the bar is history.
 
 The page then grows a **commit bar** under the stack bar: every commit of the
 PR, plus **all**, which is where it starts - the PR as a whole is still the

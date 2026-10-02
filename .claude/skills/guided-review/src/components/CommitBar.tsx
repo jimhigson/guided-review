@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "preact/hooks";
 
 import { commits, selectedCommit } from "../payload.ts";
+import { uncommittedRef } from "../ReviewPayload.ts";
 import { selectCommitAndRemount } from "../reviewSwitch.ts";
 import { keepCurrentInView } from "./barScroll.ts";
 
@@ -44,8 +45,10 @@ export const CommitBar = () => {
           title={`${commit.short} ${commit.subject}${commit.pr === undefined ? "" : ` — ${commit.pr}`}`}
           onClick={() => selectCommitAndRemount(commit.sha)}
         >
-          <span class="commit-sha">{commit.short}</span>
-          <span class="commit-subject">{commit.subject}</span>
+          <span class={`commit-sha ${commit.sha === uncommittedRef ? "is-uncommitted" : ""}`}>
+            {commit.short}
+          </span>
+          {commit.sha !== uncommittedRef && <span class="commit-subject">{commit.subject}</span>}
         </button>
       ))}
     </nav>

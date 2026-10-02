@@ -22,6 +22,7 @@ import {
   type ReviewShell,
   sideKey,
   type Side,
+  uncommittedRef,
 } from "./src/ReviewPayload.ts";
 
 export type Mode = "commit" | "conflict" | "pr" | "worktree";
@@ -451,6 +452,18 @@ const sharedPackageScope = (repo: string, options: ReviewOptions): string | unde
   return scopes.size === 1 && only !== "" ? only : undefined;
 };
 
+/** what is changed in the working tree and not committed: against HEAD for a
+    tracked file, against nothing for one git has never seen */
+const uncommittedDiff = (repo: string, path: string): string =>
+  git(repo, "ls-files", "--", path).trim() === "" ?
+    git(repo, "diff", "--no-index", "--", "/dev/null", path)
+  : git(repo, "diff", "HEAD", "--", path);
+
+const onDisk = (repo: string, path: string): string => {
+  const file = join(repo, path);
+  return existsSync(file) && statSync(file).isFile() ? readFileSync(file, "utf8") : "";
+};
+
 const slug = (text: string): string =>
   text
     .toLowerCase()
@@ -658,6 +671,14 @@ export const collectReview = (
   // one commit's chapters read that commit alone; `git show` is the whole of
   // what that means, whatever range the review as a whole covers
   const commits: ReviewCommit[] = (authored.commits ?? []).map((authoredCommit) => {
+    if (authoredCommit.ref === uncommittedRef) {
+      return {
+        sha: uncommittedRef,
+        short: "uncommitted",
+        subject: "changed here, not committed yet",
+        ...(authoredCommit.pr === undefined ? {} : { pr: authoredCommit.pr }),
+      };
+    }
     const sha = git(repo, "rev-parse", `${authoredCommit.ref}^{commit}`).trim();
     const [short = "", subject = ""] = git(repo, "log", "-1", "--format=%h%x00%s", sha)
       .trim()
@@ -735,8 +756,8 @@ export const collectReview = (
       }
 
       const body = stripHeader(
-        commit === undefined ?
-          diffFor(repo, options, path, status)
+        commit === undefined ? diffFor(repo, options, path, status)
+        : commit === uncommittedRef ? uncommittedDiff(repo, path)
         : git(repo, "show", commit, "--", path),
       );
       if (body.trim() === "") {
@@ -747,8 +768,12 @@ export const collectReview = (
       // whole-file sides feed monaco's diff editor; past the cap the row says
       // to read the file in the tree instead
       const side =
-        commit === undefined ?
-          sidesFor(repo, options, path)
+        commit === undefined ? sidesFor(repo, options, path)
+        : commit === uncommittedRef ?
+          {
+            before: gitShow(repo, `HEAD:${path}`),
+            after: onDisk(repo, path),
+          }
         : {
             before: gitShow(repo, `${commit}^:${path}`),
             after: gitShow(repo, `${commit}:${path}`),

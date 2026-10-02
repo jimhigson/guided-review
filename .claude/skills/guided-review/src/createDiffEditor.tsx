@@ -27,6 +27,7 @@ import {
 import { languageFor } from "./monacoLoader.ts";
 import { notesFor } from "./notes.ts";
 import { activeReviewIsEditable, reviewId, server, sides } from "./payload.ts";
+import { uncommittedRef } from "./ReviewPayload.ts";
 import { type LineMark, threeWayLayouter, type Zone } from "./threeWayLayout.ts";
 
 export type EditorStatus = { kind: string; text: string };
@@ -300,7 +301,8 @@ export const createDiffEditor = (
   // page the other reviews' editors read only, though their notes still work.
   // A commit's diff is history - the file as it was then - so there is nothing
   // on disk it could be saved into
-  const editable = activeReviewIsEditable() && commit === undefined;
+  const editable =
+    activeReviewIsEditable() && (commit === undefined || commit === uncommittedRef);
 
   // the model's uri decides the typescript worker's script kind, so it has to
   // carry the real extension - an extensionless uri parses .tsx as .ts

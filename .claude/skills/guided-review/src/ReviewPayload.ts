@@ -34,6 +34,12 @@ export type ReviewGroup = {
   pr?: string;
 };
 
+/** the commit bar's last stop, when a review asks for it: what is changed in
+    the working tree and not committed at all. Authored as this `ref`, read
+    from disk rather than from history - and so the one per-commit view whose
+    rows can still be edited */
+export const uncommittedRef = "uncommitted";
+
 /** one commit of a PR, as its own thing to read */
 export type ReviewCommit = {
   sha: string;
