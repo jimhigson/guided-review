@@ -20,7 +20,7 @@ export const DiffSizeOrder = ({ state }: DiffSizeOrderProps) => {
           key={file.id}
           file={file}
           state={state}
-          noted={(notes[file.path] ?? []).length}
+          notes={notes[file.path] ?? []}
           showDir
         />
       ))}

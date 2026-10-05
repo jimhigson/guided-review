@@ -110,7 +110,7 @@ export const GuidedOrder = ({ state }: GuidedOrderProps) => {
                         key={file.id}
                         file={file}
                         state={state}
-                        noted={(notes[file.path] ?? []).length}
+                        notes={notes[file.path] ?? []}
                         showDir={false}
                       />
                     )),

@@ -710,6 +710,23 @@ ul.fs-dir-children {
   line-height: 1.4;
 }
 
+/* a file's notes in the contents: the bubble is hollow while the agent
+   still owes a reply, and fills once it has answered */
+.note-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.note-bubble::before {
+  font-family: "bootstrap-icons";
+  font-weight: 400;
+  font-size: 0.9em;
+}
+
+.note-bubble.is-waiting::before { content: "\f268"; } /* bi-chat */
+.note-bubble.is-answered::before { content: "\f24b"; } /* bi-chat-fill */
+
 /* native checkboxes paint their own OS chrome that isn't reachable through
    the border/outline properties at all - appearance:none drops it, redrawn
    in the same shape VS Code itself uses for its own checkboxes: a bordered

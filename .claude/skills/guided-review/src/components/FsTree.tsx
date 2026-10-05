@@ -39,7 +39,7 @@ export const FsTree = ({ state }: FsTreeProps) => {
           key={node.file.id}
           file={node.file}
           state={state}
-          noted={(notes[node.file.path] ?? []).length}
+          notes={notes[node.file.path] ?? []}
           showDir={false}
         />
       );
