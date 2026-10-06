@@ -157,6 +157,9 @@ export type ReviewPayload = {
   /** each file's moved code, keyed as `sides` is - absent for a file with
       none, and for a page built before moves were detected */
   moves?: Record<string, MovedRun[]>;
+  /** where each renamed file came from, keyed as `sides` is - absent for a
+      page built before renames were followed */
+  renamedFrom?: Record<string, string>;
   links: Record<string, string>;
   images: Record<string, ImageRow>;
   /** absolute path to the repo checkout this review was built from, so a

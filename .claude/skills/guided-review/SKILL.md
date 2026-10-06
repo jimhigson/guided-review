@@ -1172,6 +1172,12 @@ diffs stay in `ui-monospace`.
   a glance, not a read. Imports never count towards a move: a split scatters
   them across every new file. A 3-way surface shows no moves, since a
   conflict resolution moves nothing of its own.
+- **A renamed file is diffed against its old path.** `build.ts` asks git
+  for the scope's renames (`--name-status -M`) and reads a renamed file's
+  before side, and its line counts, from the path it had then. Its row header
+  says where it came from ("from `old/path.ts`"), from `payload.renamedFrom`.
+  Diffed under its new path alone, a renamed file read as all new: an empty
+  before side, and every line added.
 - **Paths read from their package in a monorepo.** Any directory holding a
   `package.json` is a package, except the repo root (in a monorepo that's the
   workspace). `build.ts` finds each file's nearest package, reading the

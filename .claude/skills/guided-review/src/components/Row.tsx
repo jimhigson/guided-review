@@ -9,7 +9,7 @@ import { movedLinesOf } from "../movedCode.ts";
 import { notesStore } from "../notes.ts";
 import { githubStore } from "../github.ts";
 import { threadsOffLine } from "../githubTypes.ts";
-import { conflict, fileKey, images, links, repoRoot, stats, statusLabel } from "../payload.ts";
+import { conflict, fileKey, images, links, renamedFrom, repoRoot, stats, statusLabel } from "../payload.ts";
 import { type ImageRow, type ReviewFile } from "../ReviewPayload.ts";
 import { registerRow, unregisterRow } from "../rowNodes.ts";
 import { useStore } from "../stores.ts";
@@ -106,6 +106,7 @@ export const Row = ({
     .filter((part) => part !== "")
     .join(", ");
   const href = links[fileKey(file)];
+  const oldPath = renamedFrom?.[fileKey(file)];
 
   return (
     <div
@@ -149,6 +150,11 @@ export const Row = ({
         >
           <PathLabel path={file.path} />
         </button>
+        {oldPath !== undefined && (
+          <span class="renamed-from" title={`renamed from ${oldPath}`}>
+            <span class="renamed-from-label">from</span> <PathLabel path={oldPath} />
+          </span>
+        )}
         <button
           type="button"
           class={`copy-path ${copied ? "copied" : ""}`}

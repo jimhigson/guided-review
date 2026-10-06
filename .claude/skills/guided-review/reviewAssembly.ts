@@ -672,6 +672,35 @@ const moveScopeOf = (options: ReviewOptions, commit: string | undefined): MoveSc
   : options.mode === "worktree" ? { mode: "worktree" }
   : undefined;
 
+/** where each file the scope renamed came from, by the path it has now */
+const renamesIn = (repo: string, scope: MoveScope): Map<string, string> => {
+  const listing =
+    scope.mode === "commit" ? git(repo, "show", "--format=", "--name-status", "-M", scope.ref)
+    : scope.mode === "pr" ? git(repo, "diff", "--name-status", "-M", `${scope.base}...${scope.head}`)
+    : git(repo, "diff", "--name-status", "-M", "HEAD");
+  const renames = new Map<string, string>();
+  for (const line of linesOf(listing)) {
+    const [status = "", from, to] = line.split("\t");
+    if (status.startsWith("R") && from !== undefined && to !== undefined) {
+      renames.set(to, from);
+    }
+  }
+  return renames;
+};
+
+/** the rev a scope's "before" side is read at */
+const beforeRevOf = (scope: MoveScope): string =>
+  scope.mode === "commit" ? `${scope.ref}^`
+  : scope.mode === "pr" ? scope.base
+  : "HEAD";
+
+/** a renamed file's diff, followed from its old path - diffed under its new
+    path alone it reads as all new */
+const renamedDiff = (repo: string, scope: MoveScope, from: string, to: string): string =>
+  scope.mode === "commit" ? git(repo, "show", "--format=", "-M", scope.ref, "--", from, to)
+  : scope.mode === "pr" ? git(repo, "diff", "-M", `${scope.base}...${scope.head}`, "--", from, to)
+  : git(repo, "diff", "-M", "HEAD", "--", from, to);
+
 /** each listed file's moved code, keyed as its sides are. Found across the
     whole scope, not just the listed files, so a block moved out of a file the
     review leaves out still marks where it landed */
@@ -746,6 +775,17 @@ export const collectReview = (
   const meta = authored.meta ?? { title: "guided review" };
 
   const sides: Record<string, ReviewPayload["sides"][string]> = {};
+  const renamedFrom: Record<string, string> = {};
+  const renamesByCommit = new Map<string | undefined, Map<string, string>>();
+  const renamesFor = (commit: string | undefined): Map<string, string> => {
+    const scope = moveScopeOf(options, commit);
+    if (scope === undefined) {
+      return new Map();
+    }
+    const known = renamesByCommit.get(commit) ?? renamesIn(repo, scope);
+    renamesByCommit.set(commit, known);
+    return known;
+  };
   const stats: Record<string, [number, number]> = {};
   const links: Record<string, string> = {};
   const images: Record<string, ImageRow> = {};
@@ -795,8 +835,14 @@ export const collectReview = (
         continue;
       }
 
+      const scope = moveScopeOf(options, commit);
+      const from = renamesFor(commit).get(path);
+      if (from !== undefined) {
+        renamedFrom[key] = from;
+      }
       const body = stripHeader(
-        commit === undefined ? diffFor(repo, options, path, status)
+        from !== undefined && scope !== undefined ? renamedDiff(repo, scope, from, path)
+        : commit === undefined ? diffFor(repo, options, path, status)
         : commit === uncommittedRef ? uncommittedDiff(repo, path)
         : git(repo, "show", commit, "--", path),
       );
@@ -807,7 +853,7 @@ export const collectReview = (
 
       // whole-file sides feed monaco's diff editor; past the cap the row says
       // to read the file in the tree instead
-      const side =
+      const followed =
         commit === undefined ? sidesFor(repo, options, path)
         : commit === uncommittedRef ?
           {
@@ -818,6 +864,11 @@ export const collectReview = (
             before: gitShow(repo, `${commit}^:${path}`),
             after: gitShow(repo, `${commit}:${path}`),
           };
+      // a renamed file's before is whatever it was called then
+      const side =
+        from !== undefined && scope !== undefined ?
+          { ...followed, before: gitShow(repo, `${beforeRevOf(scope)}:${from}`) }
+        : followed;
       const longest = Math.max(
         ...[side.before, side.after, side.incoming ?? ""].map((text) => text.split("\n").length - 1),
       );
@@ -841,6 +892,7 @@ export const collectReview = (
       sides,
       stats,
       moves: movesFor(repo, options, groups),
+      renamedFrom,
       links,
       images,
       repoRoot: resolve(repo),
