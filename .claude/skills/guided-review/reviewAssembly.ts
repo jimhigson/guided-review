@@ -10,12 +10,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { type ConflictRefs, conflictFiles, pathOnSide } from "./conflict.ts";
+import { collectDiffLines, findMoves, type MoveScope, movedRunsByRow } from "./moveDetection.ts";
 import { imageMimeOf, isImagePath } from "./src/imagePaths.ts";
 import {
   type ConflictFileKind,
   type ImageRow,
   type ReviewCommit,
   type ImageVersion,
+  type MovedRun,
   type ReviewGroup,
   type ReviewMeta,
   type ReviewPayload,
@@ -660,6 +662,44 @@ export const rejectRepeatedPaths = (groups: ReviewGroup[]): void => {
   }
 };
 
+/** what to look for moved code across: the review's own range, or the one
+    commit a chapter reads. A conflict's resolution moves nothing of its own */
+const moveScopeOf = (options: ReviewOptions, commit: string | undefined): MoveScope | undefined =>
+  commit === uncommittedRef ? { mode: "worktree" }
+  : commit !== undefined ? { mode: "commit", ref: commit }
+  : options.mode === "commit" ? { mode: "commit", ref: options.ref ?? "HEAD" }
+  : options.mode === "pr" ? { mode: "pr", base: options.base ?? "", head: options.head ?? "" }
+  : options.mode === "worktree" ? { mode: "worktree" }
+  : undefined;
+
+/** each listed file's moved code, keyed as its sides are. Found across the
+    whole scope, not just the listed files, so a block moved out of a file the
+    review leaves out still marks where it landed */
+const movesFor = (
+  repo: string,
+  options: ReviewOptions,
+  groups: ReviewGroup[],
+): Record<string, MovedRun[]> => {
+  const moves: Record<string, MovedRun[]> = {};
+  for (const commit of new Set(groups.map((group) => group.commit))) {
+    const scope = moveScopeOf(options, commit);
+    if (scope === undefined) {
+      continue;
+    }
+    const { removed, added } = collectDiffLines(repo, scope);
+    const byRow = movedRunsByRow(findMoves(removed, added));
+    for (const group of groups.filter((candidate) => candidate.commit === commit)) {
+      for (const { path } of group.items) {
+        const runs = byRow[path];
+        if (runs !== undefined) {
+          moves[sideKey(path, commit)] = runs;
+        }
+      }
+    }
+  }
+  return moves;
+};
+
 /** every mechanical part of one review: diffs, sides, stats, links, images */
 export const collectReview = (
   repo: string,
@@ -800,6 +840,7 @@ export const collectReview = (
       groups,
       sides,
       stats,
+      moves: movesFor(repo, options, groups),
       links,
       images,
       repoRoot: resolve(repo),

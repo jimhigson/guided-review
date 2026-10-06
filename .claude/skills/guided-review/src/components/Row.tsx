@@ -5,6 +5,7 @@ import { ImageFileNote } from "../imageDiff/ImageFileNote.tsx";
 import { imageStatsStore, mechanicalNote } from "../imageDiff/imageStats.ts";
 import { editors, editorStore } from "../editor.ts";
 import { firstChangedLine } from "../firstChangedLine.ts";
+import { movedLinesOf } from "../movedCode.ts";
 import { notesStore } from "../notes.ts";
 import { githubStore } from "../github.ts";
 import { threadsOffLine } from "../githubTypes.ts";
@@ -100,6 +101,10 @@ export const Row = ({
   };
 
   const [added, removed] = counts;
+  const { movedIn, movedOut } = movedLinesOf(fileKey(file));
+  const moved = [movedIn > 0 ? `${movedIn} moved in` : "", movedOut > 0 ? `${movedOut} moved out` : ""]
+    .filter((part) => part !== "")
+    .join(", ");
   const href = links[fileKey(file)];
 
   return (
@@ -218,6 +223,15 @@ export const Row = ({
           : <span class="row-stat">
               <span class="stat-add">+{added}</span>{" "}
               <span class="stat-rm">−{removed}</span>
+              {moved !== "" && (
+                <span
+                  class="stat-moved"
+                  title="lines the same as code elsewhere in the change, give or take indentation - boxed in the diff"
+                >
+                  {" "}
+                  · {moved}
+                </span>
+              )}
             </span>
           }
           <p

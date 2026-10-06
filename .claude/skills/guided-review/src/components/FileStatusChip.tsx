@@ -1,5 +1,6 @@
 import { imageStatsStore } from "../imageDiff/imageStats.ts";
 import { isImagePath } from "../imagePaths.ts";
+import { movedLinesOf } from "../movedCode.ts";
 import { stats, statusLabel } from "../payload.ts";
 import { blockOfTier, emptyTierGlyph, sizeTierOfImagePercent, sizeTierOfLines } from "../sizeTier.ts";
 import { useStore } from "../stores.ts";
@@ -10,7 +11,8 @@ const percentLabel = (percent: number): string => (percent < 0.1 ? "<0.1" : perc
 
 /** one chip for a file's status and how much it costs to review: the status
     letter, then a solid block per changed line count, growing with it - a
-    green one for added, a red one for removed. Images have no lines, so they
+    green one for added, a red one for removed. Lines a move accounts for
+    don't count: they cost a glance, not a read. Images have no lines, so they
     get one block sized by % of pixels changed instead. */
 export const FileStatusChip = ({ path, status }: FileStatusChipProps) => {
   const imageStats = useStore(imageStatsStore)[path];
@@ -36,10 +38,13 @@ export const FileStatusChip = ({ path, status }: FileStatusChipProps) => {
   }
 
   const [added, removed] = stats[path] ?? [0, 0];
-  const addedTier = sizeTierOfLines(added);
-  const removedTier = sizeTierOfLines(removed);
+  const { movedIn, movedOut } = movedLinesOf(path);
+  const addedTier = sizeTierOfLines(Math.max(added - movedIn, 0));
+  const removedTier = sizeTierOfLines(Math.max(removed - movedOut, 0));
+  const moved =
+    movedIn + movedOut === 0 ? "" : `, of which ${movedIn} moved in and ${movedOut} moved out`;
   return (
-    <span class={`chip chip-small chip-${status}`} title={`${label} — +${added} −${removed}`}>
+    <span class={`chip chip-small chip-${status}`} title={`${label} — +${added} −${removed}${moved}`}>
       <span class="chip-letter">{status}</span>
       <span class="chip-bar chip-bar-added" aria-hidden="true">
         {addedTier === undefined ? emptyTierGlyph : blockOfTier[addedTier]}

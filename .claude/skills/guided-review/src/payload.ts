@@ -46,6 +46,7 @@ export let meta: ReviewPayload["meta"];
 export let groups: ReviewPayload["groups"];
 export let sides: ReviewPayload["sides"];
 export let stats: ReviewPayload["stats"];
+export let moves: ReviewPayload["moves"];
 export let links: ReviewPayload["links"];
 export let images: ReviewPayload["images"];
 export let repoRoot: ReviewPayload["repoRoot"];
@@ -98,7 +99,8 @@ export const selectReview = (key: string): void => {
   const { review, block } = carriedReview(key);
   activeReview = review;
   payload = parseBlock<ReviewPayload>(block);
-  ({ id: reviewId, meta, groups, sides, stats, links, images, repoRoot, conflict, packages, packageScope } = payload);
+  ({ id: reviewId, meta, groups, sides, stats, moves, links, images, repoRoot, conflict, packages, packageScope } =
+    payload);
   allGroups = payload.groups;
   commits = payload.commits ?? [];
   commitsByPath = new Map();

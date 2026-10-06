@@ -52,6 +52,10 @@
   --new-bg: rgb(88 124 12 / 0.15); /* diffEditor.insertedTextBackground */
   --mod: #b69500; /* notificationsWarningIcon.foreground */
   --mod-bg: rgb(182 149 0 / 0.25); /* gauge.warningBackground */
+  /* code a change moved rather than wrote - the colour .tw-moved already uses */
+  --moved: var(--mod);
+  --moved-bg: color-mix(in srgb, var(--mod) 14%, transparent);
+  --moved-edge: color-mix(in srgb, var(--mod) 60%, transparent);
   --del: #ad0707; /* editorGutter.deletedBackground */
   --del-bg: rgb(173 7 7 / 0.15); /* diffEditor.removedTextBackground */
 
@@ -1072,6 +1076,7 @@ button.diff-toggle:focus-visible { outline: 2px solid var(--accent); outline-off
 
 .stat-add { color: var(--add-edge); font-weight: 600; }
 .stat-rm { color: var(--rm-edge); font-weight: 600; }
+.stat-moved { color: var(--ink-soft); }
 
 /* monaco hosts itself in here, served from the review server's own install.
    height is a fallback only, shown before fitToContent's own inline height
@@ -1412,6 +1417,94 @@ button.save:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
 }
 
 .note-zone button:hover { border-color: var(--accent); }
+
+/* moved code: a shaded box in the moved colour around each block, with a
+   tab on top of it saying where it came from - so a move reads at a glance
+   as one thing. Lines edited on the way keep the box's sides but not its
+   shading, with a bar in the gutter: they are what needs reading */
+.moved-line { background: var(--moved-bg); }
+
+.moved-box { box-shadow: inset 2px 0 0 var(--moved-edge), inset -2px 0 0 var(--moved-edge); }
+.moved-box.moved-box-top {
+  box-shadow:
+    inset 2px 0 0 var(--moved-edge),
+    inset -2px 0 0 var(--moved-edge),
+    inset 0 2px 0 var(--moved-edge);
+}
+.moved-box.moved-box-bottom {
+  box-shadow:
+    inset 2px 0 0 var(--moved-edge),
+    inset -2px 0 0 var(--moved-edge),
+    inset 0 -2px 0 var(--moved-edge);
+}
+.moved-box.moved-box-top.moved-box-bottom {
+  box-shadow: inset 0 0 0 2px var(--moved-edge);
+}
+
+.moved-fragment {
+  background: var(--moved-bg);
+  box-shadow: inset 0 -1px 0 var(--moved-edge), inset 0 1px 0 var(--moved-edge);
+}
+
+.moved-edit-gutter {
+  margin-left: 4px;
+  width: 3px !important;
+  background: var(--accent);
+}
+
+/* the zone the tab sits in; above monaco's text layer, as .note-zone is, or
+   the link can't be clicked */
+.moved-zone {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.moved-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.1rem 0.5rem;
+  font-family: var(--body);
+  font-size: 0.8rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--moved-bg);
+  border: 2px solid var(--moved-edge);
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+}
+
+.moved-label-icon { color: var(--moved); }
+
+.moved-label-icon::before {
+  font-family: "bootstrap-icons";
+  font-size: 0.85rem;
+}
+
+.moved-in .moved-label-icon::before { content: "\f123"; } /* bi-arrow-down-right */
+.moved-out .moved-label-icon::before { content: "\f144"; } /* bi-arrow-up-right */
+
+.moved-label code { font-family: var(--mono); }
+
+button.moved-link {
+  font: inherit;
+  font-family: var(--mono);
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+button.moved-link:hover { text-decoration: underline; }
+
+.moved-edits { color: var(--ink-soft); }
 
 .noted-line {
   background: var(--accent-soft);

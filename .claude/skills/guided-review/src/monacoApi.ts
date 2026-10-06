@@ -22,6 +22,8 @@ export type MonacoDecoration = {
   options: {
     isWholeLine?: boolean;
     className?: string;
+    /** a class on the text itself, rather than the line behind it */
+    inlineClassName?: string;
     /** a narrow strip between the line numbers and the text */
     linesDecorationsClassName?: string;
     glyphMarginClassName?: string;
@@ -31,6 +33,7 @@ export type MonacoDecoration = {
 
 export type MonacoDecorationsCollection = {
   set: (decorations: MonacoDecoration[]) => void;
+  clear: () => void;
 };
 
 export type MonacoViewZone = {
@@ -108,6 +111,7 @@ export type MonacoDiffEditor = {
     modified: MonacoTextModel;
   }) => void;
   getModifiedEditor: () => MonacoCodeEditor;
+  getOriginalEditor: () => MonacoCodeEditor;
   onDidUpdateDiff: (listener: () => void) => MonacoDisposable;
   updateOptions: (options: Partial<MonacoDiffEditorOptions>) => void;
   layout: () => void;

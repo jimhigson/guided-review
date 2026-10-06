@@ -125,6 +125,28 @@ export type ImageRow = {
   to: number;
 };
 
+/**
+ * a block of one side of a file that a move accounts for: lines removed from
+ * the "before" side that reappear elsewhere, or lines on the "after" side
+ * that arrived from elsewhere - where, is `other`. Everything inside it but
+ * `edited` is the same code, give or take indentation, so only those lines
+ * (and whatever isn't in a run at all) are new to read
+ */
+export type MovedRun = {
+  side: "before" | "after";
+  /** 1-based, inclusive, in that side's own numbering */
+  start: number;
+  end: number;
+  /** the other end of the move: the row it is listed under, and the line its
+      block starts on in that row's other side */
+  other: { path: string; line: number };
+  /** lines inside the run that changed on the way */
+  edited: number[];
+  /** the parts of those edited lines that did come along - a call rewritten
+      around arguments that moved, say. 1-based columns, end exclusive */
+  fragments?: { line: number; start: number; end: number }[];
+};
+
 export type ReviewPayload = {
   id: string;
   meta: ReviewMeta;
@@ -132,6 +154,9 @@ export type ReviewPayload = {
   sides: Record<string, Side>;
   /** added and removed line counts, per path */
   stats: Record<string, [number, number]>;
+  /** each file's moved code, keyed as `sides` is - absent for a file with
+      none, and for a page built before moves were detected */
+  moves?: Record<string, MovedRun[]>;
   links: Record<string, string>;
   images: Record<string, ImageRow>;
   /** absolute path to the repo checkout this review was built from, so a

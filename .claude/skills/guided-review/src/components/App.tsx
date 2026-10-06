@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { setMovedCodeOpener } from "../movedCode.ts";
 import { nextUnread } from "../nextUnread.ts";
 import {
   commits,
@@ -140,6 +141,7 @@ export const App = ({ initialTicks }: AppProps) => {
   };
 
   const goToNext = (file: ReviewFile) => goTo(nextUnread(files, ticked, file));
+  setMovedCodeOpener(goTo);
 
   // scrolling waits for the render that opened whatever the file was inside.
   // Held so the file just scrolled to is the active one for a moment, whether

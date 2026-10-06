@@ -10,6 +10,7 @@
 import { render } from "preact";
 
 import { GithubThread } from "./components/GithubThread.tsx";
+import { MovedLabel } from "./components/MovedLabel.tsx";
 import { focusNoteOnLine, NoteZone } from "./components/NoteZone.tsx";
 import { type DiffView, diffViewStore, showsBothSides } from "./diffView.ts";
 import { githubStore } from "./github.ts";
@@ -20,14 +21,16 @@ import { type FileFromDisk, liveEditors } from "./liveEditors.ts";
 import {
   type MonacoApi,
   type MonacoCodeEditor,
+  type MonacoDecoration,
   type MonacoDisposable,
   type MonacoTextModel,
   type MonacoViewZone,
 } from "./monacoApi.ts";
 import { languageFor } from "./monacoLoader.ts";
+import { movedRunsOf } from "./movedCode.ts";
 import { notesFor } from "./notes.ts";
 import { activeReviewIsEditable, reviewId, server, sides } from "./payload.ts";
-import { uncommittedRef } from "./ReviewPayload.ts";
+import { type MovedRun, uncommittedRef } from "./ReviewPayload.ts";
 import { type LineMark, threeWayLayouter, type Zone } from "./threeWayLayout.ts";
 
 export type EditorStatus = { kind: string; text: string };
@@ -58,6 +61,8 @@ const sideBySideOptions = (view: DiffView) => ({
 type EditorHandle = {
   /** the editor showing the file as it will be saved - the one notes live in */
   modifiedEditor: MonacoCodeEditor;
+  /** the editor showing the file as it was, where the surface has one */
+  originalEditor?: MonacoCodeEditor;
   layout: () => void;
   dispose: () => void;
   /** how tall the surface's content is, for sizing the host to fit it */
@@ -105,6 +110,7 @@ const buildDiffEditorHandle = (
 
   return {
     modifiedEditor: editor.getModifiedEditor(),
+    originalEditor: editor.getOriginalEditor(),
     layout: () => editor.layout(),
     dispose: () => editor.dispose(),
     contentHeight: () => editor.getModifiedEditor().getContentHeight(),
@@ -642,6 +648,97 @@ export const createDiffEditor = (
 
   let unwireNotes = server === undefined ? () => {} : wireNotes(handle);
 
+  /** boxes the code a move accounts for, with a tab above each block saying
+      where it came from or went - its edits left unshaded, as what still
+      needs reading. A 3-way view is a conflict's, which moves
+      nothing of its own */
+  const wireMoves = (surface: EditorHandle): (() => void) => {
+    const runs = movedRunsOf(fileKey);
+    if (runs.length === 0 || kind === "threeWay") {
+      return () => {};
+    }
+    const takedowns: (() => void)[] = [];
+    const mark = (editor: MonacoCodeEditor | undefined, which: MovedRun["side"], text: string) => {
+      const lines = linesOf(text);
+      // a side the review didn't embed as diffed (eg a renamed file's old
+      // path) has nothing for these lines to land on
+      const onSide = runs.filter((run) => run.side === which && run.end <= lines.length);
+      if (editor === undefined || onSide.length === 0) {
+        return;
+      }
+      // one box per run, drawn a line at a time: sides on every line, a top
+      // on the first and a bottom on the last
+      // within an edited line, the part that did come along keeps the
+      // moved shading - eg arguments that moved into a rewritten call
+      const fragments: MonacoDecoration[] = onSide.flatMap((run) =>
+        (run.fragments ?? []).map(({ line, start, end }) => ({
+          range: new monaco.Range(line, start, line, end),
+          options: { inlineClassName: "moved-fragment" },
+        })),
+      );
+      const decorations: MonacoDecoration[] = onSide.flatMap((run) => {
+        const edited = new Set(run.edited);
+        return Array.from({ length: run.end - run.start + 1 }, (_, offset) => {
+          const line = run.start + offset;
+          const box = [
+            "moved-box",
+            line === run.start ? "moved-box-top" : "",
+            line === run.end ? "moved-box-bottom" : "",
+            edited.has(line) ? "" : "moved-line",
+          ].filter((name) => name !== "");
+          return {
+            range: new monaco.Range(line, 1, line, 1),
+            options: {
+              isWholeLine: true,
+              className: box.join(" "),
+              ...(edited.has(line) ? { linesDecorationsClassName: "moved-edit-gutter" } : {}),
+            },
+          };
+        });
+      });
+      const collection = editor.createDecorationsCollection([...decorations, ...fragments]);
+
+      const labels: HTMLElement[] = [];
+      const zoneIds: string[] = [];
+      editor.changeViewZones((accessor) => {
+        for (const run of onSide) {
+          const domNode = document.createElement("div");
+          render(<MovedLabel run={run} path={path} commit={commit} />, domNode);
+          labels.push(domNode);
+          zoneIds.push(
+            accessor.addZone({
+              afterLineNumber: run.start - 1,
+              heightInPx: lineHeight + 4,
+              // the far end is a link, so the label has to see its own clicks
+              suppressMouseDown: false,
+              domNode,
+            }),
+          );
+        }
+      });
+      takedowns.push(() => {
+        collection.clear();
+        editor.changeViewZones((accessor) => {
+          for (const id of zoneIds) {
+            accessor.removeZone(id);
+          }
+        });
+        for (const label of labels) {
+          render(null, label);
+        }
+      });
+    };
+    mark(surface.modifiedEditor, "after", side.after);
+    mark(surface.originalEditor, "before", side.before);
+    fitToContent();
+    return () => {
+      for (const takedown of takedowns) {
+        takedown();
+      }
+    };
+  };
+  let unwireMoves = wireMoves(handle);
+
   if (server !== undefined) {
     if (editable) {
       // synced almost as soon as it's typed, rather than sitting unsaved until
@@ -673,12 +770,14 @@ export const createDiffEditor = (
     }
     kind = next;
     unwireNotes();
+    unwireMoves();
     stopSizing();
     handle.dispose();
     host.replaceChildren();
     handle = buildHandle(kind);
     stopSizing = handle.startSizing(fitToContent);
     unwireNotes = server === undefined ? () => {} : wireNotes(handle);
+    unwireMoves = wireMoves(handle);
     fitToContent();
   });
 
@@ -686,6 +785,7 @@ export const createDiffEditor = (
     dispose() {
       stopFollowingView();
       unwireNotes();
+      unwireMoves();
       stopSizing();
       clearTimeout(saveTimer);
       liveEditors.delete(fileKey);

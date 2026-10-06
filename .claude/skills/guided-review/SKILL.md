@@ -33,6 +33,8 @@ in the middle:
 | `resolveStack.ts` | the same target, or `--stack` for a `gh stack` (pushed or not) → the whole stack it belongs to, for the page's stack bar |
 | `buildStack.ts` | every authored review of a stack (one groups json per PR, from however many agents) → ONE page with an in-place review switcher |
 | `changedFiles.sh` | the scope's file list as `STATUS<TAB>PATH`, binaries dropped — except raster images, which get compare viewers |
+| `moveDetection.ts` | the matching behind `moves.ts`, which `build.ts` also runs to box moved code in the page |
+| `moves.ts` | the scope's moved code: blocks of removed lines that reappear elsewhere, verbatim or with the few lines edited on the way, and how much of each file is moved rather than written |
 | *(you)* | author a groups json: the grouping, the order, the per-file notes |
 | `snapshotGroups.ts` | *or*, for a snapshots-only review, generates that json mechanically — no authoring step at all |
 | `build.ts` | collects every diff *and* each file's whole before/after, strips/truncates/escapes, captures every version of each changed image, computes GitHub anchors, inlines the font and the built ui, writes the finished HTML |
@@ -310,6 +312,79 @@ audio, archives). Raster images (png/jpg/gif/webp/avif) stay in the list:
 Keep the status column per file — it drives the New/Modified/Deleted/Renamed
 badge, and tells `build.ts` which files need diffing against `/dev/null`.
 
+### Find the code that moved rather than changed
+
+Run this on every review with more than a handful of files. It is cheap (well
+under a second for a few hundred files) and nothing else in the review spots
+extractions:
+
+```bash
+node .claude/skills/guided-review/moves.ts commit <sha>
+node .claude/skills/guided-review/moves.ts pr <base> <head>
+node .claude/skills/guided-review/moves.ts worktree
+```
+
+A refactor that splits a file or lifts code into new modules shows in git as
+hundreds of deleted lines and hundreds of new ones. A reader who is not told
+it is the same code will read it all again. `moves.ts` pairs them up and
+prints each moved block as `old path:lines → new path:lines`. It compares
+tokens, not lines, so re-indenting, prettier re-wrapping a call, and the
+trailing comma prettier adds or removes all leave a move intact.
+Each block is either **verbatim** or comes with its **edits**: the few lines
+that changed on the way, old above new. The edits are usually the declaration
+that changed shape (`bubbles: render(` becoming
+`export const bubblesAppearance = render(`) or a call rewritten for its new
+home, and they are the only part of a moved block that needs reading. An
+edited line can still be partly moved: `this.addFloatingText(pickup, room,
+["+2", "LIVES"])` replacing a 4-line `addItemToRoom({ … loadFloatingText(["+2",
+"LIVES"]) })` is an edit whose array came along. The page shades that part. It also
+gives a per-file summary of how much of each file moved out or in. For a file
+that is mostly moved code it lists what else is new, imports aside, or says
+"nothing else new but imports". An edit in place (the removed and added
+lines in the same hunk of the same file) is never a move. `--json` gives the
+same data as structured output.
+
+Use the output in the steps that follow:
+
+- **Reading (step 5):** give each reading agent the `moves.ts` output for its
+  chunk, and tell it that moved blocks are already accounted for: it should
+  read their edits and whatever else is new, not re-read the bodies.
+- **Grouping (step 6):** put each moved block's source and destination in the
+  same group, deleted-then-new, so the extraction reads as one thing.
+- **Notes (step 7):** say it was moved and where from, then name the edits.
+  For example: "`bubblesAppearance` lifted out of `appearanceForItem.ts`'s
+  table unchanged apart from becoming a named export". Or: "the body of
+  `handleItemTouchingSlidingItem.ts`, now `onTouchedBy`. Only the solidity
+  check changed, `!isSolid(x)` → `x[itemBehaviourKey].isNonSolid(x)`". The
+  reader can then skim the body and look closely at only the lines you named.
+  When many files moved the same way (a table split into one file per
+  entry), one group blurb covers them and the per-file notes can be a line
+  each.
+
+How it works: the removed code is indexed as one token stream, by every
+4-token window with at least 2 names or literals in it, and by any comment or
+string of 20+ characters on its own. Each window of the added code is looked
+up, and each hit is extended both ways as far as the tokens agree. Longest
+matches are taken first, with no token used twice.
+
+A match counts on its own when its code occurred **once** in what was
+removed and it has at least 24 characters across at least 3 names or
+literals (`--min-chars`, `--min-words`). Since it was unique there, it has
+nowhere else to have come from, so a single line is enough. Common code
+(`false,`, `return;`) counts only inside a block anchored by such a match,
+unless it is long enough (120 characters, `--min-chars-common`) to be no
+coincidence. Matches no more than 4 lines apart, in order, between the same
+two files, form one block (`--max-gap`). Imports never take part.
+
+"Once in what was removed" is checked against the removed lines only, not
+every file at the old revision. Code also left unchanged elsewhere is a copy
+rather than a move, and isn't looked for. `build.ts` runs the same detection
+itself, so the page boxes moved code and labels where it came from whether
+or not you run this. Running it is for your notes.
+Code that was moved *and* had its names changed throughout won't match. That
+is safe, because it is then reviewed as new code, the same as without this
+step.
+
 ## 3. Per-file links to the forge
 
 `build.ts` derives these from the `origin` remote, so there is normally
@@ -396,6 +471,9 @@ conversation) and include:
   explicitly) it depends on, (c) its own recommended reading order for its
   chunk, grouped into named clusters with a sentence on why each cluster is
   positioned where it is
+- that chunk's `moves.ts` output, with the instruction to treat moved
+  blocks as read except for their edits, and to report a moved file as
+  "moved from X, plus Y" rather than describing its body afresh
 - an explicit instruction not to compress away the per-file notes — the
   report is consumed by you for synthesis, not shown to the user directly,
   so completeness beats brevity
@@ -1075,6 +1153,25 @@ diffs stay in `ui-monospace`.
   `renderSideBySide: true` alone does nothing in a pane this narrow, because
   monaco's `useInlineViewWhenSpaceIsLimited` drops back to the inline view
   below ~900px on its own. Both go in `sideBySideOptions`.
+- **Moved code is boxed in the diff.** `build.ts` runs the same detection as
+  `moves.ts` (both use `moveDetection.ts`) for the review's range, and for
+  each commit of a per-commit review. It embeds each file's moved runs as
+  `payload.moves`, keyed as `sides` is. `wireMoves` in `createDiffEditor.tsx`
+  draws each run as a box shaded in the moved colour (`--moved`, which is
+  `--mod`, the colour `.tw-moved` already used). A tab in the same shading
+  sits on top of the box: "moved here from `x.ts:390`" on the after side,
+  "moved to" on the before side, and whether the code is verbatim. The far
+  end is a link to that file's row when the review lists it. Lines edited on
+  the way keep the box's sides but not its shading, and get a blue gutter
+  bar, because they are what needs reading. The box is whole-line decorations
+  (sides on every line, a top on the first, a bottom on the last). The tab is
+  a view zone, so a side-by-side diff stays level (monaco pads the other
+  side), and it sits above monaco's text layer as `.note-zone` does, or the
+  link can't be clicked. A row's stat line adds "N moved in / out", and the
+  contents chip's size bars leave moved lines out, because a moved line costs
+  a glance, not a read. Imports never count towards a move: a split scatters
+  them across every new file. A 3-way surface shows no moves, since a
+  conflict resolution moves nothing of its own.
 - **Paths read from their package in a monorepo.** Any directory holding a
   `package.json` is a package, except the repo root (in a monorepo that's the
   workspace). `build.ts` finds each file's nearest package, reading the
