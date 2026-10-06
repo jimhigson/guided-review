@@ -365,7 +365,11 @@ class ReviewPage {
       definition; one that does name a branch has to actually be on it, even
       when it is the only review in the page. Without that check a PR served
       from a checkout of some other branch reads that checkout's files over the
-      diff - and a file the branch doesn't have reads as empty. */
+      diff - and a file the branch doesn't have reads as empty.
+
+      A head needn't be a branch name: `--head HEAD` names the checkout itself,
+      and a sha or remote ref names whatever commit it resolves to. Any of
+      those is on disk when it resolves to the commit checked out. */
   editableReviewId(): string | undefined {
     this.#refreshShell();
     const carried = this.#reviews.filter((review) => review.reviewId !== undefined);
@@ -373,11 +377,28 @@ class ReviewPage {
     if (carried.length === 1 && only?.head === undefined) {
       return only?.reviewId;
     }
-    const checkedOut = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd: this.repo,
-      encoding: "utf8",
-    }).trim();
-    return carried.find((review) => review.head === checkedOut)?.reviewId;
+    const resolve = (...args: string[]): string | undefined => {
+      try {
+        return execFileSync("git", ["rev-parse", ...args], {
+          cwd: this.repo,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+      } catch {
+        return undefined;
+      }
+    };
+    const checkedOut = resolve("--abbrev-ref", "HEAD");
+    const checkedOutSha = resolve("HEAD");
+    return (
+      carried.find((review) => review.head === checkedOut) ??
+      carried.find(
+        (review) =>
+          review.head !== undefined &&
+          checkedOutSha !== undefined &&
+          resolve("--verify", "--quiet", `${review.head}^{commit}`) === checkedOutSha,
+      )
+    )?.reviewId;
   }
 
   page(): string {
