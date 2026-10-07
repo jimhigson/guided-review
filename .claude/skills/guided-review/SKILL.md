@@ -114,6 +114,24 @@ anything else, since it changes every git command downstream:
   and ancestor for you, from `MERGE_HEAD`/`REBASE_HEAD`/`CHERRY_PICK_HEAD`/`REVERT_HEAD`
   or the merge's parents.
 
+**A branch with uncommitted work on top** is still a whole PR: build it
+with `--mode pr --base <base> --head <branch name>` and serve it from the
+checkout. The served page's right side *is* the working directory: every
+uncommitted edit shows as it's made, files that exist only on disk arrive
+in the page's live chapter, and the review rebuilds itself on every commit
+and rebase.
+
+> **NEVER make a commit to review.** No `git commit-tree`, `git stash
+> create`, WIP commit, or "working tree snapshot" to fold uncommitted work
+> into a range, and never pass such a commit (or any SHA no branch points
+> at) as `--head`. A review built on a copy of the working directory is
+> frozen at the moment the copy was taken. It is not the reader's code, so
+> the server can't connect it to the checkout: the editors are read-only,
+> the reader's edits never appear, and it never rebuilds. To the reader it
+> looks like the review has broken. Always pass the **branch name** as
+> `--head` (`HEAD` is fine too: the build records the branch it names).
+> `build.ts` refuses a head that is on no branch.
+
 Identify which, and resolve it to concrete refs:
 
 ```bash

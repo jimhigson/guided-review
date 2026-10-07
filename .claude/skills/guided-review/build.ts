@@ -229,6 +229,21 @@ const main = async (): Promise<void> => {
     options.conflict = resolveConflict(repo, options.ref);
   }
 
+  // a commit no ref contains is a copy made to be reviewed - a "working tree
+  // snapshot" - and a review of it can never be the reader's code: frozen,
+  // read-only, never rebuilt. Refuse it rather than serve something that
+  // looks broken the moment the reader edits
+  if (options.mode === "pr" && options.head !== undefined && /^[0-9a-f]{7,40}$/.test(options.head)) {
+    const holders = git(repo, "for-each-ref", "--contains", options.head, "--format=%(refname)").trim();
+    if (holders === "") {
+      throw new Error(
+        `--head ${options.head} is on no branch or ref - a commit made just to review (a working tree ` +
+          "snapshot) can't follow the checkout, be edited, or rebuild. Never commit to review: pass the " +
+          "branch name as --head (or HEAD) and serve from the checkout - uncommitted work shows live",
+      );
+    }
+  }
+
   const authored = JSON.parse(readFileSync(options.groups, "utf8")) as AuthoredGroups;
   const collected = collectReview(
     repo,
