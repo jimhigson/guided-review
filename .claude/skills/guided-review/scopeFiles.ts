@@ -31,12 +31,8 @@ const git = (repo: string, ...args: string[]): string => {
   }
 };
 
-/**
- * every file that differs between `base` and either `head` or, with no head,
- * the working tree - untracked files included, as additions
- */
-export const scopeFiles = (repo: string, base: string, head: string | undefined): ScopeFile[] => {
-  const listing = git(repo, "diff", "--name-status", "-M", base, ...(head === undefined ? [] : [head]));
+/** git's --name-status output as files, unreviewable ones dropped */
+export const parseNameStatus = (listing: string): ScopeFile[] => {
   const files: ScopeFile[] = [];
   for (const line of listing.split("\n")) {
     const [status = "", first, second] = line.split("\t");
@@ -50,12 +46,23 @@ export const scopeFiles = (repo: string, base: string, head: string | undefined)
       : { path: first, status: letter },
     );
   }
-  if (head === undefined) {
-    for (const path of git(repo, "ls-files", "--others", "--exclude-standard", "-z").split("\0")) {
-      if (path !== "") {
-        files.push({ path, status: "A" });
-      }
-    }
-  }
   return files.filter((file) => !unreviewable.test(file.path));
+};
+
+/** files git has never been told about, as additions */
+export const untrackedFiles = (repo: string): ScopeFile[] =>
+  git(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    .split("\0")
+    .filter((path) => path !== "" && !unreviewable.test(path))
+    .map((path) => ({ path, status: "A" }));
+
+/**
+ * every file that differs between `base` and either `head` or, with no head,
+ * the working tree - untracked files included, as additions
+ */
+export const scopeFiles = (repo: string, base: string, head: string | undefined): ScopeFile[] => {
+  const files = parseNameStatus(
+    git(repo, "diff", "--name-status", "-M", base, ...(head === undefined ? [] : [head])),
+  );
+  return head === undefined ? [...files, ...untrackedFiles(repo)] : files;
 };

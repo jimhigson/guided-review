@@ -710,6 +710,19 @@ others degrade safely to read-only-with-notes.
   generated code) are recorded as `leftOut` and never offered. A listed file
   the change no longer covers keeps its place, marked "not in the change any
   more" or "renamed to …", and the server prints that too.
+- **The commit bar follows the branch too.** A served review that follows
+  its branch always has a commit bar, even with one commit: "all" (the
+  review as written), each commit of the branch since its base, then
+  **staged** (`HEAD` → index) and **working** (index → disk), each shown
+  only while it has something in it. The server lists them on every poll
+  (`stops` in `/state`), so a `git add`, an edit or a commit shows at once.
+  A stop reads as the reading order filtered to the files it changes, plus
+  a "Not in the reading order" chapter for the rest. Its sides are fetched
+  from the server (`/stop-sides`) the first time it is read, and again
+  whenever its files change. Working rows are editable and save to disk.
+  Staged rows are read-only and say where to edit instead. A commit's rows
+  are history. A reload on a stop comes back to it. A review authored
+  commit by commit keeps its own bar instead.
 - **Read, then changed:** a ticked file whose diff changes (an edit on disk,
   a rebase) is unticked and unfolded, with "Changed since read" until it is
   ticked again. Line counts follow every change, whether or not the diff is

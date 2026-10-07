@@ -8,9 +8,22 @@
 
 import { type FileFromDisk, liveEditors } from "./liveEditors.ts";
 import { fetchFileFromDisk } from "./fileSync.ts";
-import { activeReview, activeReviewIsEditable, reviewId, selectReview, server, sides, stats } from "./payload.ts";
+import {
+  activeReview,
+  activeReviewIsEditable,
+  reviewId,
+  selectCommit,
+  selectedCommit,
+  selectReview,
+  server,
+  setStops,
+  sides,
+  stats,
+  stops,
+} from "./payload.ts";
 import { type ShellReview, type Side } from "./ReviewPayload.ts";
 import { resetLiveFiles } from "./scopeSync.ts";
+import { loadStopSides, resetStops } from "./stopSync.ts";
 import { bumpPayloadVersion, toast } from "./stores.ts";
 import { markChangedSinceRead } from "./ticks.ts";
 
@@ -77,10 +90,23 @@ export const followBuild = async (build: ServerBuild | undefined): Promise<void>
     }
     putBlock(built.review.block, built.payload);
     Object.assign(activeReview, built.review);
-    // the same review, read afresh from its new block - the commit in view
-    // and the url stay as they were
+    // the same review, read afresh from its new block - the stop in view and
+    // the url stay as they were, its stops put back until the next poll
+    // lists them again
+    const reading = selectedCommit;
+    const listed = stops;
     selectReview(activeReview.key);
     resetLiveFiles();
+    resetStops();
+    if (listed.length > 0) {
+      setStops(listed);
+      if (reading !== undefined && listed.some((stop) => stop.key === reading)) {
+        // its rows can't draw without their sides, which the new payload
+        // doesn't carry
+        await loadStopSides(reading);
+        selectCommit(reading);
+      }
+    }
 
     const editable = activeReviewIsEditable();
     for (const [key, side] of Object.entries(sides)) {

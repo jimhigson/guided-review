@@ -705,7 +705,7 @@ export const rejectRepeatedPaths = (groups: ReviewGroup[]): void => {
 /** a commit as git would name it: a branch or tag it is the tip of, or how
     far behind one it is ("main~2"). Review refs fetched under refs/review are
     the skill's own bookkeeping, not names anyone gave it */
-const nameOfCommit = (repo: string, rev: string): SideRef => {
+export const nameOfCommit = (repo: string, rev: string): SideRef => {
   const sha = git(repo, "rev-parse", "--verify", "--quiet", `${rev}^{commit}`).trim();
   if (sha === "") {
     return { name: rev, sha: "" };

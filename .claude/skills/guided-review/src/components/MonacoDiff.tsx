@@ -8,7 +8,7 @@ import {
 import { diffViewStore } from "../diffView.ts";
 import { loadMonaco } from "../monacoLoader.ts";
 import { activeReviewIsEditable, commits, conflict, payload, server, sides } from "../payload.ts";
-import { type SideRef, type SideRefs, uncommittedRef } from "../ReviewPayload.ts";
+import { type SideRef, type SideRefs, stagedRef, uncommittedRef, workingRef } from "../ReviewPayload.ts";
 
 /** a side as git names it, with its commit unless the name already is one */
 const refLabel = ({ name, sha }: SideRef): string =>
@@ -141,7 +141,7 @@ export const MonacoDiff = ({
   }
 
   // a commit's diff is history: nothing on disk is that file as it had it
-  const historical = commit !== undefined && commit !== uncommittedRef;
+  const historical = commit !== undefined && commit !== uncommittedRef && commit !== workingRef;
   const editable = activeReviewIsEditable() && !historical;
 
   // said over every diff, so a review of anything but what the reader thinks
@@ -163,6 +163,8 @@ export const MonacoDiff = ({
         <span class="hint">
           {server === undefined ?
             "read-only — serve this review to edit and leave notes"
+          : commit === stagedRef ?
+            "read-only — this is what's staged; edit it under working, or in all"
           : historical ?
             "read-only — this is the file as that commit had it; notes still work"
           : editable ?

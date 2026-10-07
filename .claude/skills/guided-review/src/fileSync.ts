@@ -9,6 +9,7 @@
 import { notifyDiskConflict } from "./diskConflict.ts";
 import { type FileFromDisk, liveEditors } from "./liveEditors.ts";
 import { diskSyncPaths, reviewId, server, sides, stats } from "./payload.ts";
+import { sideKey, uncommittedRef, workingRef } from "./ReviewPayload.ts";
 import { bumpPayloadVersion, toastFileUpdated } from "./stores.ts";
 import { markChangedSinceRead } from "./ticks.ts";
 
@@ -32,33 +33,41 @@ export const fetchFileFromDisk = (path: string): Promise<FileFromDisk | undefine
 
 export const reconcileFiles = async (onDisk: Record<string, string>): Promise<void> => {
   for (const [path, diskSha] of Object.entries(onDisk)) {
-    const editor = liveEditors.get(path);
-    const knownSha = editor?.sha() ?? sides[path]?.sha;
-    if (knownSha === undefined || diskSha === knownSha) {
-      continue;
-    }
-    const fresh = await fetchFileFromDisk(path);
-    if (fresh === undefined) {
-      continue;
-    }
-    // its diff isn't what was read any more
-    markChangedSinceRead(path);
-
-    if (editor === undefined) {
-      const side = sides[path];
-      if (side !== undefined) {
-        sides[path] = { ...side, after: fresh.after, sha: fresh.sha };
-        stats[path] = [fresh.added, fresh.removed];
-        // no editor to report the new counts, so the row has to be told
-        bumpPayloadVersion();
+    // the disk is the right side of a file's whole-range row, and of its row
+    // under the uncommitted or working stop - each kept by its own key
+    const keys = [path, sideKey(path, uncommittedRef), sideKey(path, workingRef)].filter(
+      (key) => sides[key] !== undefined || liveEditors.has(key),
+    );
+    let fresh: Awaited<ReturnType<typeof fetchFileFromDisk>> | null = null;
+    for (const key of keys) {
+      const editor = liveEditors.get(key);
+      const knownSha = editor?.sha() ?? sides[key]?.sha;
+      if (knownSha === undefined || diskSha === knownSha) {
+        continue;
       }
-      continue;
+      fresh ??= (await fetchFileFromDisk(path)) ?? null;
+      if (fresh === null) {
+        break;
+      }
+      // its diff isn't what was read any more
+      markChangedSinceRead(key);
+
+      if (editor === undefined) {
+        const side = sides[key];
+        if (side !== undefined) {
+          sides[key] = { ...side, after: fresh.after, sha: fresh.sha };
+          stats[key] = [fresh.added, fresh.removed];
+          // no editor to report the new counts, so the row has to be told
+          bumpPayloadVersion();
+        }
+        continue;
+      }
+      if (editor.isDirty()) {
+        notifyDiskConflict(path, fresh, editor);
+        continue;
+      }
+      editor.applyFromDisk(fresh);
+      toastFileUpdated(path);
     }
-    if (editor.isDirty()) {
-      notifyDiskConflict(path, fresh, editor);
-      continue;
-    }
-    editor.applyFromDisk(fresh);
-    toastFileUpdated(path);
   }
 };

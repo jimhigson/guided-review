@@ -26,6 +26,9 @@ export type ReviewGroup = {
   /** the page's own last chapter of files that came into scope after the
       review was written - never authored, and rebuilt as the scope changes */
   live?: boolean;
+  /** one of the page's own chapters for a stop of the commit bar - the
+      reading order filtered to that stop's files - never shown under "all" */
+  stop?: boolean;
   /** html */
   blurb?: string;
   items: ReviewItem[];
@@ -42,6 +45,23 @@ export type ReviewGroup = {
     from disk rather than from history - and so the one per-commit view whose
     rows can still be edited */
 export const uncommittedRef = "uncommitted";
+
+/** a served review's own last two stops: what is staged (HEAD to the index),
+    and what is in the working tree beyond that (the index to the disk) */
+export const stagedRef = "staged";
+export const workingRef = "working";
+
+/** one stop of a served review's commit bar - a commit of the branch, or the
+    staged or working changes - and the files it changes, as the server lists
+    them each poll */
+export type ReviewStop = {
+  key: string;
+  /** short: a short sha, or "staged" / "working" */
+  label: string;
+  subject: string;
+  refs: SideRefs;
+  files: { path: string; status: string; from?: string; sha?: string }[];
+};
 
 /** one commit of a PR, as its own thing to read */
 /** one side of a diff, named the way git names it - a branch, a tag, or

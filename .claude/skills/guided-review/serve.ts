@@ -81,8 +81,9 @@ const gitOut = (repo: string, ...args: string[]): string | undefined => {
 
 import { commentOnPr, fetchPrComments, replyToThread } from "./github.ts";
 import { type GithubReview } from "./src/githubTypes.ts";
-import { type ScopeFile, scopeFiles } from "./scopeFiles.ts";
-import { type RebuildRecipe } from "./src/ReviewPayload.ts";
+import { nameOfCommit } from "./reviewAssembly.ts";
+import { parseNameStatus, type ScopeFile, scopeFiles, untrackedFiles } from "./scopeFiles.ts";
+import { type RebuildRecipe, type ReviewStop, stagedRef, workingRef } from "./src/ReviewPayload.ts";
 
 const marker = "<!--REVIEW_SERVER-->";
 const shellPattern = /<script type="application\/json" id="shell">(?<json>[\s\S]*?)<\/script>/;
@@ -644,6 +645,113 @@ class ReviewPage {
     return { review, payload, images };
   }
 
+  /** a commit's stop never changes, so it is worked out once */
+  #commitStops = new Map<string, ReviewStop>();
+
+  /**
+   * the stops of the review's commit bar now: each commit of the branch
+   * since its base, then - when the checkout is this review - what is staged
+   * and what is only in the working tree, each listed only while it has
+   * something in it. Only for a review that follows its branch; a review
+   * authored commit by commit has its own bar
+   */
+  stops(store: ReviewStore, onDisk: boolean): ReviewStop[] | undefined {
+    if (store.baseRef === undefined || store.perCommit || this.#recipe === undefined) {
+      return undefined;
+    }
+    const stops: ReviewStop[] = [];
+    const range = store.head === undefined ? "" : (gitOut(this.repo, "rev-list", "--reverse", `${store.baseSha}..${store.head}`) ?? "");
+    for (const sha of range.split("\n").filter((line) => line !== "")) {
+      const known = this.#commitStops.get(sha);
+      if (known !== undefined) {
+        stops.push(known);
+        continue;
+      }
+      const [short = "", subject = ""] = (gitOut(this.repo, "log", "-1", "--format=%h%x00%s", sha) ?? "").split("\u0000");
+      const stop: ReviewStop = {
+        key: sha,
+        label: short,
+        subject,
+        refs: { before: nameOfCommit(this.repo, `${sha}^`), after: nameOfCommit(this.repo, sha) },
+        files: parseNameStatus(gitOut(this.repo, "show", "--format=", "--name-status", "-M", sha) ?? ""),
+      };
+      this.#commitStops.set(sha, stop);
+      stops.push(stop);
+    }
+    if (onDisk) {
+      // each file's content id, so the page can tell when a stop's files changed
+      // without fetching them: the blob staged, or a hash of the disk
+      const staged = parseNameStatus(gitOut(this.repo, "diff", "--cached", "--name-status", "-M") ?? "").map(
+        (file) => ({ ...file, sha: gitOut(this.repo, "rev-parse", `:${file.path}`) ?? "" }),
+      );
+      const working = [
+        ...parseNameStatus(gitOut(this.repo, "diff", "--name-status", "-M") ?? ""),
+        ...untrackedFiles(this.repo),
+      ].map((file) => ({ ...file, sha: sha256(ReviewStore.read(join(this.repo, file.path))) }));
+      const head = nameOfCommit(this.repo, "HEAD");
+      if (staged.length > 0) {
+        stops.push({
+          key: stagedRef,
+          label: "staged",
+          subject: "in the index, not committed",
+          refs: { before: head, after: { name: "index", sha: "" } },
+          files: staged,
+        });
+      }
+      if (working.length > 0) {
+        stops.push({
+          key: workingRef,
+          label: "working",
+          subject: "in the working tree, not staged",
+          refs: { before: { name: "index", sha: "" }, after: { name: "working tree", sha: "" } },
+          files: working,
+        });
+      }
+    }
+    return stops;
+  }
+
+  /** a stop's files, both sides and their counts: a commit against its
+      parent, the index against HEAD, the disk against the index */
+  stopSides(
+    stop: string,
+    files: { path: string; from?: string }[],
+  ): Record<string, { before: string; after: string; sha: string; added: number; removed: number }> {
+    const sides: ReturnType<ReviewPage["stopSides"]> = {};
+    for (const { path, from } of files) {
+      this.resolveInRepo(path);
+      const was = from ?? path;
+      const paths = from === undefined ? [path] : [from, path];
+      let before: string;
+      let after: string;
+      let numstat: string;
+      if (stop === stagedRef) {
+        before = this.#show(`HEAD:${was}`);
+        after = this.#show(`:${path}`);
+        numstat = gitOut(this.repo, "diff", "--cached", "--numstat", "-M", "--", ...paths) ?? "";
+      } else if (stop === workingRef) {
+        before = this.#show(`:${was}`);
+        after = ReviewStore.read(this.resolveInRepo(path));
+        numstat = gitOut(this.repo, "diff", "--numstat", "-M", "--", ...paths) ?? "";
+      } else {
+        before = this.#show(`${stop}^:${was}`);
+        after = this.#show(`${stop}:${path}`);
+        numstat = gitOut(this.repo, "diff", "--numstat", "-M", `${stop}^`, stop, "--", ...paths) ?? "";
+      }
+      const [added, removed] = numstat.split(/\s+/);
+      const counted = added !== undefined && /^\d+$/.test(added) && removed !== undefined;
+      sides[path] = {
+        before,
+        after,
+        sha: sha256(after),
+        // an untracked file has no diff for git to count: all of it is new
+        added: counted ? Number(added) : after.split("\n").filter((line, index, all) => index < all.length - 1 || line !== "").length,
+        removed: counted ? Number(removed) : 0,
+      };
+    }
+    return sides;
+  }
+
   /** the files the review's scope covers now, for the page to show any that
       came into it since the review was written - measured from the current
       base to the disk when the checkout is this review, or to its head */
@@ -953,6 +1061,8 @@ const handlePost = (
       // the files the scope covers now - the page adds any that came into
       // it since the review was written
       scope: reviewPage.scopeNow(store, editable) ?? null,
+      // the commit bar's stops: the branch's commits, staged, working
+      stops: reviewPage.stops(store, editable) ?? null,
     });
     return;
   }
@@ -980,6 +1090,18 @@ const handlePost = (
       respondJson(response, 200, fresh);
     } catch (error) {
       respondJson(response, 502, { error: (error as Error).message.split("\n")[0] });
+    }
+    return;
+  }
+  if (path === "/stop-sides") {
+    try {
+      respondJson(
+        response,
+        200,
+        reviewPage.stopSides(String(body.stop ?? ""), (body.files as { path: string; from?: string }[]) ?? []),
+      );
+    } catch (error) {
+      respondJson(response, 400, { error: (error as Error).message });
     }
     return;
   }

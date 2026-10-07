@@ -7,7 +7,7 @@
    longer differs keeps its place, marked, rather than shifting the order. */
 
 import { isImagePath } from "./imagePaths.ts";
-import { commits, files, groups, leftOut, reviewId, server, setLiveFiles, sides, stats } from "./payload.ts";
+import { files, groups, leftOut, payload, reviewId, server, setLiveFiles, sides, stats } from "./payload.ts";
 import { bumpPayloadVersion, makeStore, toast } from "./stores.ts";
 
 export type ScopeFile = { path: string; status: string; from?: string };
@@ -31,8 +31,15 @@ export const resetLiveFiles = (): void => {
 };
 
 export const followScope = async (scope: ScopeFile[] | null | undefined): Promise<void> => {
-  // a commit-by-commit review's rows are history: there is no one scope
-  if (scope === null || scope === undefined || server === undefined || commits.length > 0 || inFlight) {
+  // a review authored commit by commit has rows that are history: there is no
+  // one scope. (A served review's stops are in `commits` too - not authored)
+  if (
+    scope === null ||
+    scope === undefined ||
+    server === undefined ||
+    (payload.commits ?? []).length > 0 ||
+    inFlight
+  ) {
     return;
   }
   const isLive = (file: (typeof files)[number]): boolean => groups[file.groupIndex]?.live === true;

@@ -12,10 +12,12 @@ import {
   type ReviewFile,
   type ReviewPayload,
   type ReviewShell,
+  type ReviewStop,
   type ShellReview,
   sideKey,
   tickKey,
   uncommittedRef,
+  workingRef,
 } from "./ReviewPayload.ts";
 import { commitKeyFromUrl, recordCommitInUrl, recordReviewInUrl, reviewKeyFromUrl } from "./urlState.ts";
 
@@ -91,7 +93,7 @@ export const tickKeysOf = (file: ReviewFile): string[] => {
     and nothing on disk is that file as that commit had it */
 export const diskSyncPaths = (): string[] =>
   files
-    .filter((file) => file.commit === undefined || file.commit === uncommittedRef)
+    .filter((file) => file.commit === undefined || file.commit === uncommittedRef || file.commit === workingRef)
     .map((file) => file.path);
 
 /** every chapter of the review; `groups` is only the ones in view */
@@ -139,7 +141,11 @@ export const selectReview = (key: string): void => {
 /** read one commit of this review, or all of them (undefined) */
 export const selectCommit = (sha: string | undefined): void => {
   selectedCommit = sha;
-  const inView = sha === undefined ? allGroups : allGroups.filter((group) => group.commit === sha);
+  // a stop's chapters are that stop's alone: "all" is the review as written
+  const inView =
+    sha === undefined ?
+      allGroups.filter((group) => group.stop !== true)
+    : allGroups.filter((group) => group.commit === sha);
   groups = inView;
   files = inView.flatMap((group, groupIndex) =>
     group.items.map((item, itemIndex) => ({
@@ -168,9 +174,72 @@ const initialReviewKey = (): string => {
   return base !== undefined && base.block !== undefined ? base.key : shell.current;
 };
 
+/** the commit the url asked for as the page loaded - kept, because a served
+    review's stops (staged, working, …) only arrive with the first poll, and
+    selecting the review clears a commit it doesn't know of yet from the url */
+export const commitAskedFor = commitKeyFromUrl();
+
 selectReview(initialReviewKey());
 
 export const liveChapterTitle = "Changed since this review was written";
+
+/** the served review's commit bar, as the server last listed it */
+export let stops: ReviewStop[] = [];
+
+/**
+ * a served review's commit bar: one stop per commit of the branch, then
+ * staged, then working. Each stop reads as the reading order filtered to the
+ * files it changes - the review's own chapters, in its own order - with
+ * whatever it changes beyond them in a chapter of its own. Their sides are
+ * the server's to fill, when a stop is first looked at
+ */
+export const setStops = (next: ReviewStop[]): void => {
+  stops = next;
+  allGroups = allGroups.filter((group) => group.stop !== true);
+  const authored = allGroups.filter((group) => group.commit === undefined && group.live !== true);
+  for (const stop of next) {
+    const changed = new Map(stop.files.map((file) => [file.path, file]));
+    for (const group of authored) {
+      const items = group.items.filter((item) => changed.has(item.path));
+      if (items.length > 0) {
+        allGroups = [
+          ...allGroups,
+          {
+            ...group,
+            commit: stop.key,
+            stop: true,
+            items: items.map((item) => ({ ...item, status: changed.get(item.path)?.status ?? item.status })),
+          },
+        ];
+        for (const item of items) {
+          changed.delete(item.path);
+        }
+      }
+    }
+    if (changed.size > 0) {
+      allGroups = [
+        ...allGroups,
+        {
+          title: "Not in the reading order",
+          blurb: "Changed here, but the review as written doesn't read it.",
+          commit: stop.key,
+          stop: true,
+          items: [...changed.values()].map((file) => ({ path: file.path, status: file.status })),
+        },
+      ];
+    }
+    for (const file of stop.files) {
+      if (file.from !== undefined) {
+        renamedFrom = { ...renamedFrom, [sideKey(file.path, stop.key)]: file.from };
+      }
+    }
+  }
+  if ((payload.commits ?? []).length === 0) {
+    commits = next.map((stop) => ({ sha: stop.key, short: stop.label, subject: stop.subject, refs: stop.refs }));
+  }
+  const still = selectedCommit === undefined || next.some((stop) => stop.key === selectedCommit);
+  selectCommit(still ? selectedCommit : undefined);
+};
 
 /**
  * the files that came into the review's scope after it was written, as the

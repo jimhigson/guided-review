@@ -4,6 +4,8 @@ import { App } from "./components/App.tsx";
 import { followBuild, type ServerBuild } from "./rebuildSync.ts";
 import { reconcileFiles, trackedPaths } from "./fileSync.ts";
 import { followScope, type ScopeFile } from "./scopeSync.ts";
+import { followStops, loadStopSides } from "./stopSync.ts";
+import { type ReviewStop } from "./ReviewPayload.ts";
 import { imageStatsStore, startImageStatsSweep } from "./imageDiff/imageStats.ts";
 import { liveEditors } from "./liveEditors.ts";
 import { followPageTheme } from "./monacoLoader.ts";
@@ -50,6 +52,8 @@ type ServerState = {
   build?: ServerBuild;
   /** the files the review's scope covers now - null where it isn't followed */
   scope?: ScopeFile[] | null;
+  /** the commit bar's stops now - null where the review has none */
+  stops?: ReviewStop[] | null;
 };
 
 const agentSaid = (state: ServerState) =>
@@ -120,6 +124,7 @@ const pollState = async (): Promise<void> => {
   await reconcileFiles(state.files);
   await followBuild(state.build);
   await followScope(state.scope);
+  await followStops(state.stops);
 };
 
 const mountApp = (root: HTMLElement, initialTicks: Set<string>): void => {
@@ -162,8 +167,12 @@ const main = async (): Promise<void> => {
   // a commit switch changes which files are in view, not which review they
   // belong to: the notes and ticks are the same store, so only the app remounts
   setCommitSwitcher((sha) => {
-    selectCommit(sha);
-    mountApp(root, currentTicks());
+    // a stop of a served review's bar has its files fetched first, the first
+    // time it is read - its rows can't draw a diff without them
+    void (sha === undefined ? Promise.resolve() : loadStopSides(sha)).then(() => {
+      selectCommit(sha);
+      mountApp(root, currentTicks());
+    });
   });
 
   await loadNotes();
