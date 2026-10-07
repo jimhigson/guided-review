@@ -1231,6 +1231,15 @@ diffs stay in `ui-monospace`.
   a glance, not a read. Imports never count towards a move: a split scatters
   them across every new file. A 3-way surface shows no moves, since a
   conflict resolution moves nothing of its own.
+- **Every diff says what it is between.** Above each editor:
+  "diff `main~2 (52e9aab)` → `item-behaviours (a84dc34)`", plus "+ working
+  tree" when the right side follows the disk. The names are git's own
+  (`name-rev`), recorded by the build for the review's range
+  (`payload.refs`) and for each commit of a per-commit review
+  (`commits[].refs`). A head given as a branch keeps that branch's name. A
+  commit nothing refers to has no name, so it shows as a bare SHA. That
+  makes a review of anything other than what the reader thinks it is,
+  another branch or a stale or made-up commit, obvious at a glance.
 - **A renamed file is diffed against its old path.** `build.ts` asks git
   for the scope's renames (`--name-status -M`) and reads a renamed file's
   before side, and its line counts, from the path it had then. Its row header

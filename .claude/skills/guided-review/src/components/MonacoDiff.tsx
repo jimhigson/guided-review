@@ -7,8 +7,16 @@ import {
 } from "../createDiffEditor.tsx";
 import { diffViewStore } from "../diffView.ts";
 import { loadMonaco } from "../monacoLoader.ts";
-import { activeReviewIsEditable, conflict, server, sides } from "../payload.ts";
-import { uncommittedRef } from "../ReviewPayload.ts";
+import { activeReviewIsEditable, commits, conflict, payload, server, sides } from "../payload.ts";
+import { type SideRef, type SideRefs, uncommittedRef } from "../ReviewPayload.ts";
+
+/** a side as git names it, with its commit unless the name already is one */
+const refLabel = ({ name, sha }: SideRef): string =>
+  sha === "" || sha.startsWith(name) ? name : `${name} (${sha.slice(0, 7)})`;
+
+/** what this row's diff is between: the review's own range, or its commit's */
+const refsOf = (commit: string | undefined): SideRefs | undefined =>
+  commit === undefined ? payload.refs : commits.find((candidate) => candidate.sha === commit)?.refs;
 import { useStore } from "../stores.ts";
 
 /** what each 3-way colour means, in the order they're worth checking */
@@ -136,9 +144,20 @@ export const MonacoDiff = ({
   const historical = commit !== undefined && commit !== uncommittedRef;
   const editable = activeReviewIsEditable() && !historical;
 
+  // said over every diff, so a review of anything but what the reader thinks
+  // it is - another branch, a stale or made-up commit - is plain to see
+  const refs = refsOf(commit);
+  const followsDisk = editable && refs?.after.name !== "working tree";
+
   return (
     <>
       {threeWay && <ThreeWayHead fileKey={fileKey} />}
+      {!threeWay && refs !== undefined && (
+        <p class="diff-refs" title={`${refs.before.sha || refs.before.name} → ${refs.after.sha || refs.after.name}`}>
+          diff <code>{refLabel(refs.before)}</code> → <code>{refLabel(refs.after)}</code>
+          {followsDisk && <span class="diff-refs-disk"> + working tree</span>}
+        </p>
+      )}
       <div class="diff-monaco" ref={hostRef} />
       <div class="editor-bar">
         <span class="hint">

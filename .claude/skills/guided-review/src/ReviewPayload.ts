@@ -44,12 +44,23 @@ export type ReviewGroup = {
 export const uncommittedRef = "uncommitted";
 
 /** one commit of a PR, as its own thing to read */
+/** one side of a diff, named the way git names it - a branch, a tag, or
+    "main~2" - with the commit it is, so the page can say exactly what it is
+    comparing. A sha with no name at all is a commit nothing refers to, and
+    shows as just that */
+export type SideRef = { name: string; sha: string };
+
+/** what a diff's two sides are */
+export type SideRefs = { before: SideRef; after: SideRef };
+
 export type ReviewCommit = {
   sha: string;
   short: string;
   subject: string;
   /** the PR this commit belongs to, in the every-PR review */
   pr?: string;
+  /** its parent and itself, named - what its rows' diffs are between */
+  refs?: SideRefs;
 };
 
 export type ReviewMeta = {
@@ -157,6 +168,9 @@ export type ReviewPayload = {
   sides: Record<string, Side>;
   /** added and removed line counts, per path */
   stats: Record<string, [number, number]>;
+  /** what the review's whole-range diffs are between - a commit's own rows
+      say theirs on the commit. Absent from a page built before this */
+  refs?: SideRefs;
   /** each file's moved code, keyed as `sides` is - absent for a file with
       none, and for a page built before moves were detected */
   moves?: Record<string, MovedRun[]>;

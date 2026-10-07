@@ -20,6 +20,8 @@ import {
   type ImageVersion,
   type MovedRun,
   type ReviewGroup,
+  type SideRef,
+  type SideRefs,
   type ReviewMeta,
   type ReviewPayload,
   type ReviewShell,
@@ -700,6 +702,53 @@ export const rejectRepeatedPaths = (groups: ReviewGroup[]): void => {
   }
 };
 
+/** a commit as git would name it: a branch or tag it is the tip of, or how
+    far behind one it is ("main~2"). Review refs fetched under refs/review are
+    the skill's own bookkeeping, not names anyone gave it */
+const nameOfCommit = (repo: string, rev: string): SideRef => {
+  const sha = git(repo, "rev-parse", "--verify", "--quiet", `${rev}^{commit}`).trim();
+  if (sha === "") {
+    return { name: rev, sha: "" };
+  }
+  let name = "";
+  try {
+    name = execFileSync(
+      "git",
+      ["name-rev", "--name-only", "--no-undefined", "--exclude=refs/review/*", "--exclude=refs/stash", sha],
+      { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+  } catch {
+    name = "";
+  }
+  return { name: name === "" ? sha.slice(0, 9) : name.replace(/^remotes\//, "").replace(/^tags\//, ""), sha };
+};
+
+/** what a scope's diffs are between, named. A branch given by name keeps
+    that name, where name-rev might pick another ref at the same commit */
+const sideRefsOf = (repo: string, options: ReviewOptions): SideRefs | undefined => {
+  if (options.mode === "commit") {
+    return { before: nameOfCommit(repo, `${options.ref}^`), after: nameOfCommit(repo, options.ref ?? "HEAD") };
+  }
+  if (options.mode === "pr") {
+    const head = nameOfCommit(repo, options.head ?? "HEAD");
+    const branch = headBranchOf(repo, options.head ?? "HEAD");
+    return {
+      before: nameOfCommit(repo, mergeBaseOf(repo, options.base ?? "", options.head ?? "")),
+      after: /^[0-9a-f]{7,40}$/.test(branch) ? head : { name: shortRef(branch), sha: head.sha },
+    };
+  }
+  if (options.mode === "worktree") {
+    return { before: nameOfCommit(repo, "HEAD"), after: { name: "working tree", sha: "" } };
+  }
+  const refs = options.conflict;
+  return refs === undefined ? undefined : (
+      {
+        before: { name: refs.info.current.label, sha: refs.current },
+        after: { name: refs.resolution === "worktree" ? "resolution (working tree)" : "resolution", sha: refs.resolution === "worktree" ? "" : refs.resolution },
+      }
+    );
+};
+
 /** what to look for moved code across: the review's own range, or the one
     commit a chapter reads. A conflict's resolution moves nothing of its own */
 const moveScopeOf = (options: ReviewOptions, commit: string | undefined): MoveScope | undefined =>
@@ -783,6 +832,7 @@ export const collectReview = (
         sha: uncommittedRef,
         short: "uncommitted",
         subject: "changed here, not committed yet",
+        refs: { before: nameOfCommit(repo, "HEAD"), after: { name: "working tree", sha: "" } },
         ...(authoredCommit.pr === undefined ? {} : { pr: authoredCommit.pr }),
       };
     }
@@ -794,6 +844,7 @@ export const collectReview = (
       sha,
       short,
       subject,
+      refs: { before: nameOfCommit(repo, `${sha}^`), after: nameOfCommit(repo, sha) },
       ...(authoredCommit.pr === undefined ? {} : { pr: authoredCommit.pr }),
     };
   });
@@ -925,6 +976,7 @@ export const collectReview = (
   // what the scope held that the reading order leaves out - only where a
   // served page follows the scope at all (see baseRefOf)
   const baseSha = resolveBaseSha(repo, options);
+  const sideRefs = sideRefsOf(repo, options);
   const listed = new Set(groups.flatMap((group) => group.items.map((item) => item.path)));
   const leftOut =
     options.leftOut !== undefined ? options.leftOut
@@ -942,6 +994,7 @@ export const collectReview = (
       sides,
       stats,
       moves: movesFor(repo, options, groups),
+      ...(sideRefs === undefined ? {} : { refs: sideRefs }),
       renamedFrom,
       ...(leftOut.length === 0 ? {} : { leftOut }),
       links,
