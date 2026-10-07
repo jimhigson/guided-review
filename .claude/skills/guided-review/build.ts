@@ -29,6 +29,7 @@ import { buildPage } from "./buildPage.ts";
 import { resolveConflict } from "./conflict.ts";
 import {
   type AuthoredGroups,
+  baseRefOf,
   branchKey,
   collectReview,
   finishCss,
@@ -38,6 +39,7 @@ import {
   readResolvedStack,
   reviewBlockId,
   type ReviewOptions,
+  headBranchOf,
   shortRef,
 } from "./reviewAssembly.ts";
 import { type ReviewShell, type ShellReview } from "./src/ReviewPayload.ts";
@@ -126,12 +128,17 @@ const parseOptions = (): Options => {
  * stack file names 2+ PRs - its siblings, carried or not
  */
 const shellFor = (
+  repo: string,
   options: Options,
   collectedId: string,
   title: string,
   baseSha: string,
 ): ReviewShell => {
-  const head = options.mode === "pr" && options.head !== undefined ? shortRef(options.head) : undefined;
+  const head =
+    options.mode === "pr" && options.head !== undefined ?
+      shortRef(headBranchOf(repo, options.head))
+    : undefined;
+  const baseRef = baseRefOf(options);
   const key = options.pr ?? (head === undefined ? "0" : branchKey(head));
   const own: ShellReview = {
     key,
@@ -141,6 +148,7 @@ const shellFor = (
     block: reviewBlockId(key),
     reviewId: collectedId,
     baseSha,
+    ...(baseRef === undefined ? {} : { baseRef }),
     ...(head === undefined ? {} : { head }),
   };
 
@@ -181,7 +189,7 @@ const main = async (): Promise<void> => {
   );
   const { payload, imageBlocks, forge, empty, imageBytes, imagesOmitted, baseSha } = collected;
 
-  const shell = shellFor(options, payload.id, payload.meta.title, baseSha);
+  const shell = shellFor(repo, options, payload.id, payload.meta.title, baseSha);
   const currentReview = shell.reviews.find((review) => review.key === shell.current);
   const { script, css } = await buildPage();
   const html = page(

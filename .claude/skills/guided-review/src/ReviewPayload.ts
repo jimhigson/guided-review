@@ -23,6 +23,9 @@ export type ReviewItem = {
 
 export type ReviewGroup = {
   title: string;
+  /** the page's own last chapter of files that came into scope after the
+      review was written - never authored, and rebuilt as the scope changes */
+  live?: boolean;
   /** html */
   blurb?: string;
   items: ReviewItem[];
@@ -160,6 +163,10 @@ export type ReviewPayload = {
   /** where each renamed file came from, keyed as `sides` is - absent for a
       page built before renames were followed */
   renamedFrom?: Record<string, string>;
+  /** files in the review's scope when it was built that the reading order
+      leaves out on purpose - lockfiles, generated code - so a served page,
+      showing files that come into scope later, doesn't offer these as new */
+  leftOut?: string[];
   links: Record<string, string>;
   images: Record<string, ImageRow>;
   /** absolute path to the repo checkout this review was built from, so a
@@ -210,6 +217,13 @@ export type ShellReview = {
       does regardless of what else has since been committed there. Absent for
       an uncarried stack sibling, or a page built before this existed */
   baseSha?: string;
+  /** what the before side follows, so a served page can keep it current: in
+      a PR, the base branch (eg origin/main) the head is measured against at
+      their merge base; in a working-tree review, HEAD. When the branch is
+      rebased, or a commit lands under a working tree, the server sees the
+      base move and the page reads its before side from the new one. Absent
+      where the before side is history (a commit) or a page predates it */
+  baseRef?: string;
   /** an instructions file in the stack directory awaits a contributing agent */
   awaitingContribution?: boolean;
   /** the every-layer-at-once review, which the stack bar offers as a toggle
@@ -252,6 +266,9 @@ export type ReviewServer = {
   /** the review whose head branch the served checkout has on disk - the only
       one whose editors may save back; absent when no carried review matches */
   editableReviewId?: string;
+  /** why no review is editable, when none is - eg the checkout is on another
+      branch - for the editors to say instead of just refusing input */
+  readOnlyReason?: string;
 };
 
 declare global {

@@ -55,10 +55,32 @@ type ShellReview = {
   head?: string;
   reviewId?: string;
   baseSha?: string;
+  baseRef?: string;
+  block?: string;
+};
+
+/** the slice of a review's payload this server reads */
+type PayloadSlice = {
+  groups: { commit?: string; live?: boolean; items: { path: string }[] }[];
+  leftOut?: string[];
+};
+
+/** a git command's trimmed output, or undefined when it fails */
+const gitOut = (repo: string, ...args: string[]): string | undefined => {
+  try {
+    return execFileSync("git", args, {
+      cwd: repo,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return undefined;
+  }
 };
 
 import { commentOnPr, fetchPrComments, replyToThread } from "./github.ts";
 import { type GithubReview } from "./src/githubTypes.ts";
+import { type ScopeFile, scopeFiles } from "./scopeFiles.ts";
 
 const marker = "<!--REVIEW_SERVER-->";
 const shellPattern = /<script type="application\/json" id="shell">(?<json>[\s\S]*?)<\/script>/;
@@ -178,8 +200,23 @@ class ReviewStore {
   label: string;
   /** the commit this review's diff is measured from - live line counts diff
       against this, never the working checkout's index, so they always read
-      against the same base the review itself does */
+      against the same base the review itself does. Moves when `baseRef`
+      does: see ReviewPage.currentBase */
   baseSha: string;
+  /** what the before side follows (ShellReview.baseRef), and the head it is
+      measured against - absent where the before side is history */
+  baseRef: string | undefined;
+  head: string | undefined;
+  /** what moved the base last, as the reflog put it ("rebase (finish)…") */
+  baseReason = "";
+  /** the files the reading order lists, and those it leaves out on purpose -
+      what a file coming into scope is new against */
+  listed = new Set<string>();
+  leftOut = new Set<string>();
+  /** read commit by commit: its rows are history, and the scope isn't followed */
+  perCommit = false;
+  /** what has been said about the scope already, so each is said once */
+  #announced = new Set<string>();
   notesFile: string;
   notesMarkdown: string;
   ticksFile: string;
@@ -187,10 +224,19 @@ class ReviewStore {
   githubFile: string;
   #seen: Set<string>;
 
-  constructor(htmlDir: string, id: string, label: string, baseSha: string) {
+  constructor(
+    htmlDir: string,
+    id: string,
+    label: string,
+    baseSha: string,
+    baseRef: string | undefined,
+    head: string | undefined,
+  ) {
     this.id = id;
     this.label = label;
     this.baseSha = baseSha;
+    this.baseRef = baseRef;
+    this.head = head;
     const dir = join(htmlDir, id);
     mkdirSync(dir, { recursive: true });
     this.notesFile = join(dir, "notes.json");
@@ -198,6 +244,30 @@ class ReviewStore {
     this.ticksFile = join(dir, "ticks.json");
     this.githubFile = join(dir, "github.json");
     this.#seen = flatten(this.readNotes());
+  }
+
+  /** says, once each, what has come into scope since the reading order was
+      written and what in it no longer differs - for the agent watching this
+      output to place in the groups json */
+  announceScope(scope: ScopeFile[]): void {
+    const inScope = new Set(scope.map((file) => file.path));
+    const said: string[] = [];
+    for (const file of scope) {
+      if (!this.listed.has(file.path) && !this.leftOut.has(file.path)) {
+        said.push(
+          `new in scope: ${file.path} (${file.status}${file.from === undefined ? "" : ` from ${file.from}`}) - not in the reading order`,
+        );
+      }
+    }
+    for (const path of this.listed) {
+      if (!inScope.has(path)) {
+        said.push(`not in the change any more: ${path}`);
+      }
+    }
+    for (const line of said.filter((entry) => !this.#announced.has(entry))) {
+      console.log(`  ${this.label === "" ? "" : `${this.label} `}${line}`);
+    }
+    this.#announced = new Set(said);
   }
 
   static read(path: string): string {
@@ -324,6 +394,7 @@ class ReviewPage {
       (review): review is ShellReview & { reviewId: string } => review.reviewId !== undefined,
     );
     const labelled = carried.length > 1;
+    const html = readFileSync(this.html, "utf8");
     for (const review of carried) {
       if (!this.#stores.has(review.reviewId)) {
         this.#stores.set(
@@ -335,9 +406,37 @@ class ReviewPage {
             // a page built before baseSha existed falls back to HEAD - the old,
             // less exact comparison, rather than failing to serve at all
             review.baseSha ?? "HEAD",
+            review.baseRef,
+            review.head,
           ),
         );
       }
+      const store = this.#stores.get(review.reviewId);
+      const payload = review.block === undefined ? undefined : ReviewPage.payloadOf(html, review.block);
+      if (store !== undefined && payload !== undefined) {
+        store.listed = new Set(
+          payload.groups
+            .filter((group) => group.commit === undefined && group.live !== true)
+            .flatMap((group) => group.items.map((item) => item.path)),
+        );
+        store.leftOut = new Set(payload.leftOut ?? []);
+        store.perCommit = payload.groups.some((group) => group.commit !== undefined);
+      }
+    }
+  }
+
+  /** the part of a review's inert payload block this server routes on */
+  static payloadOf(html: string, block: string): PayloadSlice | undefined {
+    const start = html.indexOf(`<script type="application/json" id="${block}">`);
+    if (start === -1) {
+      return undefined;
+    }
+    const from = html.indexOf(">", start) + 1;
+    const to = html.indexOf("</script>", from);
+    try {
+      return JSON.parse(html.slice(from, to)) as PayloadSlice;
+    } catch {
+      return undefined;
     }
   }
 
@@ -358,53 +457,147 @@ class ReviewPage {
     return all.length === 1 ? only : undefined;
   }
 
-  /** the review whose head branch the served checkout has on disk - the only
-      one allowed to save back, and the only one whose files are synced from
-      disk at all. A review with no head names no branch to be on (worktree and
-      commit modes review the checkout itself), so it is editable by
-      definition; one that does name a branch has to actually be on it, even
-      when it is the only review in the page. Without that check a PR served
-      from a checkout of some other branch reads that checkout's files over the
-      diff - and a file the branch doesn't have reads as empty.
+  /** the review the served checkout is - the only one allowed to save back,
+      and the only one whose files are synced from disk at all. A review with
+      no head names no branch to be on (worktree and commit modes review the
+      checkout itself), so it is that by definition. One that does name a
+      branch has to be on it, even when it is the only review in the page:
+      without that a PR served from a checkout of some other branch reads
+      that checkout's files over the diff, and saves into them.
 
-      A head needn't be a branch name: `--head HEAD` names the checkout itself,
-      and a sha or remote ref names whatever commit it resolves to. Any of
-      those is on disk when it resolves to the commit checked out. */
-  editableReviewId(): string | undefined {
+      The head is matched by branch name, which holds through new commits,
+      rebases and amends - the build records the branch even when it was
+      given HEAD or a sha (headBranchOf). A head that is still a bare sha
+      matches a checkout that contains it. In a stack every layer below the
+      checked-out one is contained in it too, so the nearest wins. Files that
+      changed since the build are guarded separately: a save is refused when
+      the file on disk isn't what the page last read. */
+  editable(): { reviewId?: string; reason?: string } {
     this.#refreshShell();
     const carried = this.#reviews.filter((review) => review.reviewId !== undefined);
     const [only] = carried;
     if (carried.length === 1 && only?.head === undefined) {
-      return only?.reviewId;
+      return { reviewId: only?.reviewId };
     }
-    const resolve = (...args: string[]): string | undefined => {
-      try {
-        return execFileSync("git", ["rev-parse", ...args], {
-          cwd: this.repo,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }).trim();
-      } catch {
-        return undefined;
-      }
+    const branch = gitOut(this.repo, "rev-parse", "--abbrev-ref", "HEAD");
+    const byName = carried.find((review) => review.head === branch);
+    if (byName !== undefined) {
+      return { reviewId: byName.reviewId };
+    }
+    const contained = carried.filter(
+      (review) =>
+        review.head !== undefined &&
+        gitOut(this.repo, "merge-base", "--is-ancestor", review.head, "HEAD") !== undefined,
+    );
+    const nearest = contained.find((review) =>
+      contained.every(
+        (other) =>
+          other === review ||
+          gitOut(this.repo, "merge-base", "--is-ancestor", other.head ?? "", review.head ?? "") !==
+            undefined,
+      ),
+    );
+    if (nearest !== undefined) {
+      return { reviewId: nearest.reviewId };
+    }
+    const heads = carried.map((review) => review.head ?? "?").join(", ");
+    const at = gitOut(this.repo, "rev-parse", "--short", "HEAD") ?? "?";
+    return {
+      reason: `the checkout is ${branch === "HEAD" ? "detached" : `on ${branch ?? "?"}`} at ${at}, not ${heads}`,
     };
-    const checkedOut = resolve("--abbrev-ref", "HEAD");
-    const checkedOutSha = resolve("HEAD");
-    return (
-      carried.find((review) => review.head === checkedOut) ??
-      carried.find(
-        (review) =>
-          review.head !== undefined &&
-          checkedOutSha !== undefined &&
-          resolve("--verify", "--quiet", `${review.head}^{commit}`) === checkedOutSha,
-      )
-    )?.reviewId;
+  }
+
+  editableReviewId(): string | undefined {
+    return this.editable().reviewId;
+  }
+
+  /** the commit the review's before side should be read at now: where its
+      head left its base ref - which a rebase, or merging the base in, moves -
+      or the base ref itself where there is no head (HEAD, under a working
+      tree). Asked every poll; a few milliseconds of git */
+  currentBase(store: ReviewStore): string {
+    if (store.baseRef === undefined) {
+      return store.baseSha;
+    }
+    const base =
+      store.head === undefined ?
+        gitOut(this.repo, "rev-parse", store.baseRef)
+      : gitOut(this.repo, "merge-base", store.baseRef, store.head);
+    if (base === undefined || base === "" || base === store.baseSha) {
+      return store.baseSha;
+    }
+    const reason = gitOut(this.repo, "reflog", "-1", "--format=%gs", store.head ?? "HEAD") ?? "";
+    console.log(
+      `  before side${store.label === "" ? "" : ` of ${store.label}`} now reads from ${base.slice(0, 9)}` +
+        (reason === "" ? "" : ` (${reason})`),
+    );
+    store.baseSha = base;
+    store.baseReason = reason;
+    return base;
+  }
+
+  /** the files the review's scope covers now, for the page to show any that
+      came into it since the review was written - measured from the current
+      base to the disk when the checkout is this review, or to its head */
+  scopeNow(store: ReviewStore, onDisk: boolean): ScopeFile[] | undefined {
+    if (store.baseRef === undefined || store.perCommit) {
+      return undefined;
+    }
+    const scope = scopeFiles(this.repo, this.currentBase(store), onDisk ? undefined : store.head);
+    store.announceScope(scope);
+    return scope;
+  }
+
+  /** a file as it is at the review's current base - followed from where it
+      was then, for a file the review shows renamed - and its line counts
+      against what the page's after side is: the disk when the checkout is
+      this review, the head otherwise */
+  before(
+    store: ReviewStore,
+    path: string,
+    from: string | undefined,
+    onDisk: boolean,
+  ): { before: string; after: string; sha: string; added: number; removed: number } {
+    const base = this.currentBase(store);
+    const was = from ?? path;
+    const before = this.#show(`${base}:${was}`);
+    const after = onDisk ? [] : [store.head ?? "HEAD"];
+    const paths = from === undefined ? [path] : [from, path];
+    const numstat = gitOut(this.repo, "diff", "--numstat", "-M", base, ...after, "--", ...paths) ?? "";
+    const [added, removed] = numstat.split(/\s+/);
+    const current = onDisk ? ReviewStore.read(this.resolveInRepo(path)) : this.#show(`${store.head ?? "HEAD"}:${path}`);
+    return {
+      before,
+      after: current,
+      sha: sha256(current),
+      ...(added !== undefined && /^\d+$/.test(added) && removed !== undefined ?
+        { added: Number(added), removed: Number(removed) }
+      : onDisk ? this.lineCounts(path, base)
+      : { added: 0, removed: 0 }),
+    };
+  }
+
+  /** a blob's content as is (not trimmed, as gitOut's is), or empty where
+      the path didn't exist at that commit */
+  #show(spec: string): string {
+    try {
+      return execFileSync("git", ["show", spec], {
+        cwd: this.repo,
+        encoding: "utf8",
+        maxBuffer: 512 * 1_024 * 1_024,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      return "";
+    }
   }
 
   page(): string {
+    const { reviewId, reason } = this.editable();
     const bootstrap = `<script>window.__reviewServer = ${JSON.stringify({
       token: this.token,
-      editableReviewId: this.editableReviewId(),
+      editableReviewId: reviewId,
+      ...(reason === undefined ? {} : { readOnlyReason: reason }),
     })};</script>`;
     const text = readFileSync(this.html, "utf8");
     if (!text.includes(marker)) {
@@ -628,6 +821,12 @@ const handlePost = (
       ticked: store.readTicks(),
       github: store.readGithub() ?? null,
       files: editable ? reviewPage.fileState((body.paths as string[]) ?? []) : {},
+      // where the before side should be read from now - the page re-reads it
+      // through /before when this moves under it
+      base: { sha: reviewPage.currentBase(store), reason: store.baseReason },
+      // the files the scope covers now - the page adds any that came into
+      // it since the review was written
+      scope: reviewPage.scopeNow(store, editable) ?? null,
     });
     return;
   }
@@ -656,6 +855,20 @@ const handlePost = (
     } catch (error) {
       respondJson(response, 502, { error: (error as Error).message.split("\n")[0] });
     }
+    return;
+  }
+  if (path === "/before") {
+    const files = (body.files as { path: string; from?: string }[] | undefined) ?? [];
+    const result: Record<string, ReturnType<ReviewPage["before"]>> = {};
+    for (const file of files) {
+      try {
+        reviewPage.resolveInRepo(file.path);
+        result[file.path] = reviewPage.before(store, file.path, file.from, editable);
+      } catch {
+        // outside the repo: not this review's file to read
+      }
+    }
+    respondJson(response, 200, { base: store.baseSha, files: result });
     return;
   }
   if (path === "/file") {

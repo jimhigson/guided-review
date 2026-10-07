@@ -48,6 +48,7 @@ export let sides: ReviewPayload["sides"];
 export let stats: ReviewPayload["stats"];
 export let moves: ReviewPayload["moves"];
 export let renamedFrom: ReviewPayload["renamedFrom"];
+export let leftOut: ReviewPayload["leftOut"];
 export let links: ReviewPayload["links"];
 export let images: ReviewPayload["images"];
 export let repoRoot: ReviewPayload["repoRoot"];
@@ -108,6 +109,7 @@ export const selectReview = (key: string): void => {
     stats,
     moves,
     renamedFrom,
+    leftOut,
     links,
     images,
     repoRoot,
@@ -167,6 +169,43 @@ const initialReviewKey = (): string => {
 };
 
 selectReview(initialReviewKey());
+
+export const liveChapterTitle = "Changed since this review was written";
+
+/**
+ * the files that came into the review's scope after it was written, as the
+ * page's own last chapter - replaced whole each time, since it is the scope
+ * now and not something anyone authored. Their sides and counts must already
+ * be in `sides`/`stats`; renamed ones say where from
+ */
+export const setLiveFiles = (live: { path: string; status: string; from?: string }[]): void => {
+  allGroups = allGroups.filter((group) => group.live !== true);
+  for (const file of live) {
+    if (file.from !== undefined) {
+      renamedFrom = { ...renamedFrom, [file.path]: file.from };
+    }
+  }
+  if (live.length > 0) {
+    allGroups = [
+      ...allGroups,
+      {
+        title: liveChapterTitle,
+        blurb:
+          "Not in the reading order yet - the agent hears about each one, and can place it. " +
+          "The diffs are live, the same as every other file's.",
+        live: true,
+        items: live.map((file) => ({ path: file.path, status: file.status })),
+      },
+    ];
+  }
+  selectCommit(selectedCommit);
+};
+
+/** moved code was found against the base the page was built at; once the
+    before side reads from another, it no longer lines up */
+export const dropMoves = (): void => {
+  moves = {};
+};
 
 /** whether the active review's editors may write to the served checkout */
 export const activeReviewIsEditable = (): boolean =>

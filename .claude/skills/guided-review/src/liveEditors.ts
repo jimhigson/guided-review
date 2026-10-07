@@ -21,6 +21,11 @@ export type LiveEditor = {
   overwriteDiskWith: (file: FileFromDisk) => void;
   /** unsaved edits - a review switch would lose them, so it asks first */
   isDirty: () => boolean;
+  /** the review's base moved: a new before side, and the line counts against
+      it - and, where the right side isn't the disk, a new after side too */
+  applyBefore: (before: string, counts: [number, number], after?: string) => void;
+  /** re-draw the moved-code boxes from whatever the payload now says */
+  refreshMoves: () => void;
 };
 
 export const liveEditors = new Map<string, LiveEditor>();

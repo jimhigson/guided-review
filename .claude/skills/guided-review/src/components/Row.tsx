@@ -7,12 +7,24 @@ import { editors, editorStore } from "../editor.ts";
 import { firstChangedLine } from "../firstChangedLine.ts";
 import { movedLinesOf } from "../movedCode.ts";
 import { notesStore } from "../notes.ts";
+import { goneStore } from "../scopeSync.ts";
+import { changedSinceRead } from "../ticks.ts";
 import { githubStore } from "../github.ts";
 import { threadsOffLine } from "../githubTypes.ts";
-import { conflict, fileKey, images, links, renamedFrom, repoRoot, stats, statusLabel } from "../payload.ts";
+import {
+  conflict,
+  fileKey,
+  images,
+  links,
+  renamedFrom,
+  repoRoot,
+  stats,
+  statusLabel,
+  tickKeyOf,
+} from "../payload.ts";
 import { type ImageRow, type ReviewFile } from "../ReviewPayload.ts";
 import { registerRow, unregisterRow } from "../rowNodes.ts";
-import { useStore } from "../stores.ts";
+import { payloadVersionStore, useStore } from "../stores.ts";
 import { GithubThread } from "./GithubThread.tsx";
 import { MonacoDiff } from "./MonacoDiff.tsx";
 import { PathLabel } from "./PathLabel.tsx";
@@ -57,6 +69,14 @@ export const Row = ({
     stats[fileKey(file)] ?? [0, 0],
   );
   const [copied, setCopied] = useState(false);
+  // the file changing under the page - on disk, or its base moving - re-reads
+  // the row's counts, whether or not its diff is open
+  const payloadVersion = useStore(payloadVersionStore);
+  useEffect(() => {
+    if (payloadVersion > 0) {
+      setCounts(stats[fileKey(file)] ?? [0, 0]);
+    }
+  }, [payloadVersion]);
   // opening a diff mounts its editor; closing only hides it, so an unsaved edit
   // survives the file being ticked away and reopened
   const [mounted, setMounted] = useState(false);
@@ -107,6 +127,9 @@ export const Row = ({
     .join(", ");
   const href = links[fileKey(file)];
   const oldPath = renamedFrom?.[fileKey(file)];
+  const changedSince = useStore(changedSinceRead).has(tickKeyOf(file)) && !ticked;
+  const goneByPath = useStore(goneStore);
+  const gone = file.commit === undefined ? goneByPath.get(file.path) : undefined;
 
   return (
     <div
@@ -126,6 +149,16 @@ export const Row = ({
         <span class={`chip chip-${file.status}`}>
           {statusLabel[file.status] ?? file.status}
         </span>
+        {changedSince && (
+          <span class="chip chip-changed" title="its diff changed after you ticked it as read">
+            Changed since read
+          </span>
+        )}
+        {gone !== undefined && (
+          <span class="chip chip-gone" title="the branch no longer differs from its base here - reverted, removed, or renamed">
+            {gone}
+          </span>
+        )}
         {conflict?.files[file.path] === "conflicted" && (
           <span class="chip chip-conflict" title="git could not merge this file on its own">
             Conflicted

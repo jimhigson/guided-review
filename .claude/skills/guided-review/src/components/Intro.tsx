@@ -1,6 +1,9 @@
 import { images, meta, server, stats, total } from "../payload.ts";
+import { payloadVersionStore, useStore } from "../stores.ts";
 
 export const Intro = () => {
+  // the totals follow the files as they change under the page
+  useStore(payloadVersionStore);
   const [added, removed] = Object.values(stats).reduce(
     ([totalAdded, totalRemoved], [fileAdded, fileRemoved]) => [
       totalAdded + fileAdded,

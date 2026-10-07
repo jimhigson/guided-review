@@ -355,7 +355,9 @@ export const createDiffEditor = (
       : buildDiffEditorHandle(
           monaco,
           host,
-          otherModel(side.before, "original"),
+          // the before side can have moved since this editor was made - a
+          // rebase - and the model is only made when first wanted
+          otherModel(sides[fileKey]?.before ?? side.before, "original"),
           modified,
           editable,
         );
@@ -388,6 +390,17 @@ export const createDiffEditor = (
     setDirty(false);
     setStatus({ kind: "", text: "" });
     setCounts([file.added, file.removed]);
+  };
+
+  /** the review's base moved under the page - see baseSync.ts. The left side
+      takes the new before; the right is the disk's when editable, and kept
+      (unsaved edits and all), or the head's new content otherwise */
+  const applyBefore = (before: string, counts: [number, number], after?: string): void => {
+    otherModels.get("original")?.setValue(before);
+    if (after !== undefined && !editable) {
+      modified.setValue(after);
+    }
+    setCounts(counts);
   };
 
   const writeToDisk = async (): Promise<void> => {
@@ -728,8 +741,8 @@ export const createDiffEditor = (
         }
       });
     };
-    mark(surface.modifiedEditor, "after", side.after);
-    mark(surface.originalEditor, "before", side.before);
+    mark(surface.modifiedEditor, "after", modified.getValue());
+    mark(surface.originalEditor, "before", sides[fileKey]?.before ?? side.before);
     fitToContent();
     return () => {
       for (const takedown of takedowns) {
@@ -758,6 +771,11 @@ export const createDiffEditor = (
       isDirty: () => dirty,
       applyFromDisk,
       overwriteDiskWith,
+      applyBefore,
+      refreshMoves() {
+        unwireMoves();
+        unwireMoves = wireMoves(handle);
+      },
     });
   }
 

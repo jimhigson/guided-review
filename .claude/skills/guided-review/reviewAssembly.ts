@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { type ConflictRefs, conflictFiles, pathOnSide } from "./conflict.ts";
 import { collectDiffLines, findMoves, type MoveScope, movedRunsByRow } from "./moveDetection.ts";
+import { scopeFiles } from "./scopeFiles.ts";
 import { imageMimeOf, isImagePath } from "./src/imagePaths.ts";
 import {
   type ConflictFileKind,
@@ -295,11 +296,46 @@ const resolveBaseSha = (repo: string, options: ReviewOptions): string => {
   if (options.mode === "conflict") {
     return conflictRefsOf(options).current;
   }
-  const ref =
-    options.mode === "commit" ? `${options.ref}^`
-    : options.mode === "pr" ? (options.base ?? "")
-    : "HEAD";
-  return git(repo, "rev-parse", ref).trim();
+  // a PR is measured from where it left its base, as the three-dot diff and
+  // the forge's own Files-changed view are - not from wherever the base
+  // branch has got to since
+  if (options.mode === "pr") {
+    return mergeBaseOf(repo, options.base ?? "", options.head ?? "");
+  }
+  return git(repo, "rev-parse", options.mode === "commit" ? `${options.ref}^` : "HEAD").trim();
+};
+
+const mergeBases = new Map<string, string>();
+
+/** where a head left its base - asked once per pair, since every file asks */
+const mergeBaseOf = (repo: string, base: string, head: string): string => {
+  const pair = `${repo}\u0000${base}\u0000${head}`;
+  const known = mergeBases.get(pair) ?? git(repo, "merge-base", base, head).trim();
+  mergeBases.set(pair, known);
+  return known;
+};
+
+/** what a served page's before side follows - see ShellReview.baseRef */
+export const baseRefOf = (options: ReviewOptions): string | undefined =>
+  options.mode === "pr" ? options.base
+  : options.mode === "worktree" ? "HEAD"
+  : undefined;
+
+/**
+ * the branch a review's head is, where it is one - what lets a served page
+ * stay editable through commits and rebases on it, which a sha can't.
+ * `HEAD` is the branch checked out; a sha is the one local branch whose tip
+ * it is, if exactly one is. Anything else is kept as given
+ */
+export const headBranchOf = (repo: string, head: string): string => {
+  const named = git(repo, "rev-parse", "--abbrev-ref", head).trim();
+  if (named !== "" && named !== "HEAD" && !/^[0-9a-f]{7,40}$/.test(head)) {
+    return head === "HEAD" ? named : head;
+  }
+  const tips = git(repo, "branch", "--points-at", head, "--format=%(refname:short)")
+    .split("\n")
+    .filter((branch) => branch !== "");
+  return tips.length === 1 ? (tips[0] ?? head) : head;
 };
 
 const diffFor = (repo: string, options: ReviewOptions, path: string, status: string): string => {
@@ -358,7 +394,7 @@ const sidesFor = (
   }
   if (options.mode === "pr") {
     return {
-      before: gitShow(repo, `${options.base}:${path}`),
+      before: gitShow(repo, `${mergeBaseOf(repo, options.base ?? "", options.head ?? "")}:${path}`),
       after: gitShow(repo, `${options.head}:${path}`),
     };
   }
@@ -689,9 +725,9 @@ const renamesIn = (repo: string, scope: MoveScope): Map<string, string> => {
 };
 
 /** the rev a scope's "before" side is read at */
-const beforeRevOf = (scope: MoveScope): string =>
+const beforeRevOf = (repo: string, scope: MoveScope): string =>
   scope.mode === "commit" ? `${scope.ref}^`
-  : scope.mode === "pr" ? scope.base
+  : scope.mode === "pr" ? mergeBaseOf(repo, scope.base, scope.head)
   : "HEAD";
 
 /** a renamed file's diff, followed from its old path - diffed under its new
@@ -867,7 +903,7 @@ export const collectReview = (
       // a renamed file's before is whatever it was called then
       const side =
         from !== undefined && scope !== undefined ?
-          { ...followed, before: gitShow(repo, `${beforeRevOf(scope)}:${from}`) }
+          { ...followed, before: gitShow(repo, `${beforeRevOf(repo, scope)}:${from}`) }
         : followed;
       const longest = Math.max(
         ...[side.before, side.after, side.incoming ?? ""].map((text) => text.split("\n").length - 1),
@@ -884,6 +920,17 @@ export const collectReview = (
     }
   }
 
+  // what the scope held that the reading order leaves out - only where a
+  // served page follows the scope at all (see baseRefOf)
+  const baseSha = resolveBaseSha(repo, options);
+  const listed = new Set(groups.flatMap((group) => group.items.map((item) => item.path)));
+  const leftOut =
+    commits.length === 0 && baseRefOf(options) !== undefined ?
+      scopeFiles(repo, baseSha, options.mode === "pr" ? options.head : undefined)
+        .map((file) => file.path)
+        .filter((path) => !listed.has(path))
+    : [];
+
   return {
     payload: {
       id: reviewId(repo, options),
@@ -893,6 +940,7 @@ export const collectReview = (
       stats,
       moves: movesFor(repo, options, groups),
       renamedFrom,
+      ...(leftOut.length === 0 ? {} : { leftOut }),
       links,
       images,
       repoRoot: resolve(repo),
@@ -912,7 +960,7 @@ export const collectReview = (
     empty,
     imageBytes,
     imagesOmitted,
-    baseSha: resolveBaseSha(repo, options),
+    baseSha,
   };
 };
 

@@ -9,7 +9,8 @@
 import { notifyDiskConflict } from "./diskConflict.ts";
 import { type FileFromDisk, liveEditors } from "./liveEditors.ts";
 import { diskSyncPaths, reviewId, server, sides, stats } from "./payload.ts";
-import { toastFileUpdated } from "./stores.ts";
+import { bumpPayloadVersion, toastFileUpdated } from "./stores.ts";
+import { markChangedSinceRead } from "./ticks.ts";
 
 /** every path this review carries a text diff for that disk can still speak
     to - what the poll asks about. A commit's rows are history and are left
@@ -40,12 +41,16 @@ export const reconcileFiles = async (onDisk: Record<string, string>): Promise<vo
     if (fresh === undefined) {
       continue;
     }
+    // its diff isn't what was read any more
+    markChangedSinceRead(path);
 
     if (editor === undefined) {
       const side = sides[path];
       if (side !== undefined) {
         sides[path] = { ...side, after: fresh.after, sha: fresh.sha };
         stats[path] = [fresh.added, fresh.removed];
+        // no editor to report the new counts, so the row has to be told
+        bumpPayloadVersion();
       }
       continue;
     }

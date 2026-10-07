@@ -8,6 +8,7 @@ import {
 import { diffViewStore } from "../diffView.ts";
 import { loadMonaco } from "../monacoLoader.ts";
 import { activeReviewIsEditable, conflict, server, sides } from "../payload.ts";
+import { uncommittedRef } from "../ReviewPayload.ts";
 import { useStore } from "../stores.ts";
 
 /** what each 3-way colour means, in the order they're worth checking */
@@ -131,7 +132,9 @@ export const MonacoDiff = ({
     return <p class="diff-error">code diff unavailable: {loadError}</p>;
   }
 
-  const editable = activeReviewIsEditable();
+  // a commit's diff is history: nothing on disk is that file as it had it
+  const historical = commit !== undefined && commit !== uncommittedRef;
+  const editable = activeReviewIsEditable() && !historical;
 
   return (
     <>
@@ -141,9 +144,11 @@ export const MonacoDiff = ({
         <span class="hint">
           {server === undefined ?
             "read-only — serve this review to edit and leave notes"
+          : historical ?
+            "read-only — this is the file as that commit had it; notes still work"
           : editable ?
             "editable — hover a line and click + to add a note"
-          : "read-only — the served checkout is on another review's branch; notes still work"
+          : `read-only — ${server.readOnlyReason ?? "the served checkout isn't this review's branch"}; notes still work`
           }
         </span>
         <span class={status.kind}>{status.text}</span>

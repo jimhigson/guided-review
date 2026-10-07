@@ -31,6 +31,25 @@ export const loadTicks = async (): Promise<Set<string>> => {
   );
 };
 
+/** files whose diff changed after they were ticked as read - an agent acting
+    on a note, a rebase, another edit - by tick key. The app unticks them,
+    since "read" stopped being true, and their rows say why until they are
+    ticked again */
+export const changedSinceRead = makeStore(new Set<string>());
+
+export const markChangedSinceRead = (key: string): void => {
+  // a file nobody has read yet changing is no news
+  if (current.has(key) && !changedSinceRead.get().has(key)) {
+    changedSinceRead.set(new Set([...changedSinceRead.get(), key]));
+  }
+};
+
+export const clearChangedSinceRead = (key: string): void => {
+  if (changedSinceRead.get().has(key)) {
+    changedSinceRead.set(new Set([...changedSinceRead.get()].filter((each) => each !== key)));
+  }
+};
+
 /** ticks the page has taken from the file, so the poll can tell a change made
     somewhere else from the echo of one made here */
 export const adoptTicks = makeStore(new Set<string>());

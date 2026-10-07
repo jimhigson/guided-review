@@ -36,6 +36,13 @@ export const useStore = <T,>(store: Store<T>): T => {
   return store.get();
 };
 
+/** bumped whenever the page's file data changes under it - a file changing on
+    disk, the base moving, files coming into scope - so whatever was rendered
+    from that data (counts, chips, the file list itself) renders again */
+export const payloadVersionStore = makeStore(0);
+
+export const bumpPayloadVersion = (): void => payloadVersionStore.set(payloadVersionStore.get() + 1);
+
 export type ToastKind = "done" | "info" | "warn";
 
 export type ToastAction = { label: string; onClick: () => void };

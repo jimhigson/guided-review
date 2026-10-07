@@ -3,7 +3,7 @@ import { isImagePath } from "../imagePaths.ts";
 import { movedLinesOf } from "../movedCode.ts";
 import { stats, statusLabel } from "../payload.ts";
 import { blockOfTier, emptyTierGlyph, sizeTierOfImagePercent, sizeTierOfLines } from "../sizeTier.ts";
-import { useStore } from "../stores.ts";
+import { payloadVersionStore, useStore } from "../stores.ts";
 
 export type FileStatusChipProps = { path: string; status: string };
 
@@ -16,6 +16,8 @@ const percentLabel = (percent: number): string => (percent < 0.1 ? "<0.1" : perc
     get one block sized by % of pixels changed instead. */
 export const FileStatusChip = ({ path, status }: FileStatusChipProps) => {
   const imageStats = useStore(imageStatsStore)[path];
+  // counts are re-read as the file changes under the page
+  useStore(payloadVersionStore);
   const label = statusLabel[status] ?? status;
 
   if (isImagePath(path)) {

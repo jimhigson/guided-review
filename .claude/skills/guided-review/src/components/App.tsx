@@ -16,7 +16,15 @@ import {
 import { type ReadingState } from "../readingState.ts";
 import { type ReviewFile, uncommittedRef } from "../ReviewPayload.ts";
 import { holdActiveFile, scrollToRow, watchRows } from "../rowNodes.ts";
-import { adoptTicks, saveTicks, withMembership } from "../ticks.ts";
+import { payloadVersionStore, useStore } from "../stores.ts";
+import {
+  adoptTicks,
+  changedSinceRead,
+  clearChangedSinceRead,
+  saveTicks,
+  setCurrentTicks,
+  withMembership,
+} from "../ticks.ts";
 import { filePathFromUrl, recordFileInUrl } from "../urlState.ts";
 import { Group } from "./Group.tsx";
 import { Header } from "./Header.tsx";
@@ -29,6 +37,8 @@ import { Toasts } from "./Toasts.tsx";
 export type AppProps = { initialTicks: Set<string> };
 
 export const App = ({ initialTicks }: AppProps) => {
+  // files coming into scope add rows, and the list renders again for them
+  const payloadVersion = useStore(payloadVersionStore);
   // the file a url or a reload asks to land back on - never folded away or
   // hidden behind a closed group, whatever ticked/read state says otherwise
   const restoredFile = files.find((file) => file.path === filePathFromUrl());
@@ -72,6 +82,8 @@ export const App = ({ initialTicks }: AppProps) => {
   const overlays = useContentsOverlays();
 
   useEffect(() => {
+    // what a file changing on disk checks to know whether it had been read
+    setCurrentTicks(ticked);
     // the first run is the state that was just read back, and writing it
     // straight out again would only race the poll with itself
     if (loaded.current) {
@@ -79,6 +91,26 @@ export const App = ({ initialTicks }: AppProps) => {
     }
     loaded.current = true;
   }, [ticked]);
+
+  // a read file whose diff changed isn't read any more: untick it, and unfold
+  // it so the change is there to see. The mark stays until it is ticked again
+  useEffect(
+    () =>
+      changedSinceRead.subscribe(() => {
+        const changed = changedSinceRead.get();
+        setTicked((previous) => {
+          const stale = [...previous].filter((key) => changed.has(key));
+          return stale.length === 0 ? previous : new Set([...previous].filter((key) => !changed.has(key)));
+        });
+        setCollapsed((folded) =>
+          files.reduce(
+            (set, file) => (changed.has(tickKeyOf(file)) ? withMembership(set, file.id, false) : set),
+            folded,
+          ),
+        );
+      }),
+    [],
+  );
 
   // another tab on this review moving the file on under us: take its ticks, and
   // fold away whatever it has read since - but never unfold anything, or it
@@ -108,6 +140,11 @@ export const App = ({ initialTicks }: AppProps) => {
     setTicked((previous) =>
       tickKeysOf(file).reduce((set, key) => withMembership(set, key, on), previous),
     );
+    if (on) {
+      for (const key of tickKeysOf(file)) {
+        clearChangedSinceRead(key);
+      }
+    }
     // reading a file folds it away; changing your mind brings it back
     setCollapsed((previous) => withMembership(previous, file.id, on));
   };
@@ -155,14 +192,15 @@ export const App = ({ initialTicks }: AppProps) => {
     setScrollTo(undefined);
   }, [scrollTo]);
 
-  /* which file the reader is on, so the contents tracks the main pane */
+  /* which file the reader is on, so the contents tracks the main pane - and
+     again for rows that came into scope since */
   useEffect(
     () =>
       watchRows(
         files.map((file) => file.id),
         setActiveId,
       ),
-    [],
+    [payloadVersion],
   );
 
   // keeps the url pointed at whatever file is active, whether that came from

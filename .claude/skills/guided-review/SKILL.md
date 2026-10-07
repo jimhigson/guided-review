@@ -662,6 +662,40 @@ against its disk. In a stack page, whichever carried review's head branch the
 checkout has is the editable one; the server works this out itself and the
 others degrade safely to read-only-with-notes.
 
+**The review follows the branch, not a pair of commits.**
+- **Editing:** `build.ts` records the head as a branch name even when given
+  `HEAD` or a SHA, and the server matches the checkout by that name. Editing
+  therefore survives new commits, rebases and amends. A head that is still a
+  bare SHA, because no single branch points at it, matches a checkout that
+  contains it.
+- **The before side:** it follows the base ref the review was built against
+  (`--base` in PR mode, `HEAD` in working-tree mode). On every poll the server
+  works out where the before side should be read from: the merge base of base
+  and head, or `HEAD`. When that moves (a rebase, merging the base in, a
+  commit under a working tree), the page re-reads every file's before side
+  and line counts from there, and toasts what moved it from the reflog.
+  Unsaved edits on the right are kept.
+- **The file list:** the server compares the scope as it is now with the
+  reading order. A file that came into scope since the build (new,
+  newly changed, or renamed) gets a row in a last chapter, "Changed since
+  this review was written", with a live diff. The server prints `new in
+  scope: <path> - not in the reading order` for each one. When you see that,
+  place the file in the groups json with a note and rebuild. Files that were
+  in scope at build time but left out of the reading order (lockfiles,
+  generated code) are recorded as `leftOut` and never offered. A listed file
+  the change no longer covers keeps its place, marked "not in the change any
+  more" or "renamed to …", and the server prints that too.
+- **Read, then changed:** a ticked file whose diff changes (an edit on disk,
+  a rebase) is unticked and unfolded, with "Changed since read" until it is
+  ticked again. Line counts follow every change, whether or not the diff is
+  open.
+- **Not followed:** moved-code boxes are dropped when the base moves, since
+  they were found against the old base. Images aren't refreshed from disk. A
+  commit review, or a per-commit review, is history: its commit list and
+  rows are fixed.
+- **When an editor is read-only:** the hint under it says why, e.g. "the
+  checkout is on `main` at `12caf54`, not `feature`".
+
 It prints a `http://127.0.0.1:<port>/` — hand that over as the review. Run it
 in the background so the session isn't blocked, and say which port it's on.
 Serving buys three things a file (or a published page) can't have:

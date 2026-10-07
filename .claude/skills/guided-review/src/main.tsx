@@ -1,7 +1,9 @@
 import { render } from "preact";
 
 import { App } from "./components/App.tsx";
+import { followBase, type ServerBase } from "./baseSync.ts";
 import { reconcileFiles, trackedPaths } from "./fileSync.ts";
+import { followScope, type ScopeFile } from "./scopeSync.ts";
 import { imageStatsStore, startImageStatsSweep } from "./imageDiff/imageStats.ts";
 import { liveEditors } from "./liveEditors.ts";
 import { followPageTheme } from "./monacoLoader.ts";
@@ -44,6 +46,10 @@ type ServerState = {
   github?: GithubReview | null;
   /** path -> the sha its content currently hashes to on disk */
   files: Record<string, string>;
+  /** where the before side should be read from now */
+  base?: ServerBase;
+  /** the files the review's scope covers now - null where it isn't followed */
+  scope?: ScopeFile[] | null;
 };
 
 const agentSaid = (state: ServerState) =>
@@ -112,6 +118,8 @@ const pollState = async (): Promise<void> => {
   }
 
   await reconcileFiles(state.files);
+  await followBase(state.base);
+  await followScope(state.scope);
 };
 
 const mountApp = (root: HTMLElement, initialTicks: Set<string>): void => {

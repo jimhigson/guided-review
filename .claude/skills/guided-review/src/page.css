@@ -932,6 +932,9 @@ button.caret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2
 /* a conflict review's second chip: why the file is in it at all */
 .chip-conflict { color: var(--del); background: var(--del-bg); }
 .chip-edited { color: var(--mod); background: var(--mod-bg); }
+/* the file moved on after it was read, or stopped differing at all */
+.chip-changed { color: var(--accent); background: var(--accent-soft); }
+.chip-gone { color: var(--ink-soft); background: none; border: 1px solid var(--rule); }
 
 /* the contents tree has no room for a full word, so the chip shrinks to the
    status letter plus a solid block for how much reading it costs - same font
