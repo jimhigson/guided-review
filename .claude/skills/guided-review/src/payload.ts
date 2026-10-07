@@ -201,12 +201,6 @@ export const setLiveFiles = (live: { path: string; status: string; from?: string
   selectCommit(selectedCommit);
 };
 
-/** moved code was found against the base the page was built at; once the
-    before side reads from another, it no longer lines up */
-export const dropMoves = (): void => {
-  moves = {};
-};
-
 /** whether the active review's editors may write to the served checkout */
 export const activeReviewIsEditable = (): boolean =>
   server !== undefined && server.editableReviewId === reviewId;

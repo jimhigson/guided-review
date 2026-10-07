@@ -224,11 +224,32 @@ export type ShellReview = {
       base move and the page reads its before side from the new one. Absent
       where the before side is history (a commit) or a page predates it */
   baseRef?: string;
+  /** the head commit the review was built at (HEAD, for a working tree) -
+      with baseSha, what a served page compares against to know the branch
+      has moved and the review needs rebuilding */
+  headSha?: string;
   /** an instructions file in the stack directory awaits a contributing agent */
   awaitingContribution?: boolean;
   /** the every-layer-at-once review, which the stack bar offers as a toggle
       rather than as another layer of the chain */
   aggregate?: boolean;
+};
+
+/**
+ * how a page was built, embedded in it so the server can build it again the
+ * same way when the branch or its base moves - a rebuild is the whole review
+ * recomputed by the code that built it, not a patch on top of it
+ */
+export type RebuildRecipe = {
+  /** build.ts's arguments as first run, less --groups, --out and --left-out,
+      with the head named as its branch and the review's id pinned, so the
+      rebuild keeps its notes and ticks */
+  args: string[];
+  /** the groups json it was built from */
+  authored: unknown;
+  /** the files the first build found left out of the reading order -
+      carried, so a file that came into scope later isn't taken for one */
+  leftOut: string[];
 };
 
 /**

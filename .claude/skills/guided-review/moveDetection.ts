@@ -194,12 +194,14 @@ const tokenPattern =
 /** a side's code as one token stream. Where its lines stop being contiguous
     (another file, another hunk) or an import intervenes, a token that equals
     nothing stops a match running across the join */
-const tokenise = (lines: DiffLine[]): Token[] => {
+const tokenise = (lines: DiffLine[], side: "removed" | "added"): Token[] => {
   const imports = importLines(lines);
   const tokens: Token[] = [];
   let breaks = 0;
+  // named for its side as well as its place: two streams' stops must never
+  // equal each other, or a match runs through them from one file into another
   const stop = (at: number): void => {
-    tokens.push({ text: `\u0000${breaks++}`, at, start: 0, end: 0, detail: 0 });
+    tokens.push({ text: `\u0000${side}${breaks++}`, at, start: 0, end: 0, detail: 0 });
   };
   lines.forEach((line, at) => {
     if (!follows(lines, at) || imports.has(line)) {
@@ -352,8 +354,8 @@ export const findMoves = (
   added: DiffLine[],
   { minChars, minWords, minCharsCommon, maxGap }: MoveThresholds = defaultThresholds,
 ): Move[] => {
-  const rTokens = tokenise(removed);
-  const aTokens = tokenise(added);
+  const rTokens = tokenise(removed, "removed");
+  const aTokens = tokenise(added, "added");
   const inPlace = (r: number, a: number): boolean => {
     const from = removed[rTokens[r]?.at ?? -1];
     const to = added[aTokens[a]?.at ?? -1];

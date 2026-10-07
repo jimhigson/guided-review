@@ -9,7 +9,6 @@ import { files, meta, server, tickKeyOf, total } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { useStore } from "../stores.ts";
 import { setTheme, themeStore } from "../theme.ts";
-import { SelectControl } from "./SelectControl.tsx";
 import { CommitBar } from "./CommitBar.tsx";
 import { StackBar } from "./StackBar.tsx";
 
@@ -147,19 +146,20 @@ export const Header = ({ state }: HeaderProps) => {
             Clear ticks
           </button>
         </div>
-        <SelectControl
-          class="editor-picker"
-          label="open in"
-          ariaLabel="Editor the file links open in"
-          value={editor}
-          onChange={(id) => setEditor(id as EditorId)}
-        >
-          {Object.entries(editors).map(([id, { label }]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </SelectControl>
+        {/* a setting, not an action: a plain label and a field-like select,
+            so it doesn't read as a button that opens something */}
+        <label class="editor-picker" title="the editor every file's link opens in">
+          <span class="editor-picker-label">IDE</span>
+          <span class="field-select">
+            <select value={editor} onChange={(event) => setEditor(event.currentTarget.value as EditorId)}>
+              {Object.entries(editors).map(([id, { label }]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </span>
+        </label>
         <div class="control-group theme-switcher" role="group" aria-label="Colour theme">
           <button
             type="button"

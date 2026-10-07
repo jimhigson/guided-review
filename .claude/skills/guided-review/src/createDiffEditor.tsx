@@ -392,7 +392,7 @@ export const createDiffEditor = (
     setCounts([file.added, file.removed]);
   };
 
-  /** the review's base moved under the page - see baseSync.ts. The left side
+  /** the review was rebuilt under the page - see rebuildSync.ts. The left side
       takes the new before; the right is the disk's when editable, and kept
       (unsaved edits and all), or the head's new content otherwise */
   const applyBefore = (before: string, counts: [number, number], after?: string): void => {

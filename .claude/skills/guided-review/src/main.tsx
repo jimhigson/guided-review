@@ -1,7 +1,7 @@
 import { render } from "preact";
 
 import { App } from "./components/App.tsx";
-import { followBase, type ServerBase } from "./baseSync.ts";
+import { followBuild, type ServerBuild } from "./rebuildSync.ts";
 import { reconcileFiles, trackedPaths } from "./fileSync.ts";
 import { followScope, type ScopeFile } from "./scopeSync.ts";
 import { imageStatsStore, startImageStatsSweep } from "./imageDiff/imageStats.ts";
@@ -46,8 +46,8 @@ type ServerState = {
   github?: GithubReview | null;
   /** path -> the sha its content currently hashes to on disk */
   files: Record<string, string>;
-  /** where the before side should be read from now */
-  base?: ServerBase;
+  /** what the page the server now serves was built at */
+  build?: ServerBuild;
   /** the files the review's scope covers now - null where it isn't followed */
   scope?: ScopeFile[] | null;
 };
@@ -118,7 +118,7 @@ const pollState = async (): Promise<void> => {
   }
 
   await reconcileFiles(state.files);
-  await followBase(state.base);
+  await followBuild(state.build);
   await followScope(state.scope);
 };
 

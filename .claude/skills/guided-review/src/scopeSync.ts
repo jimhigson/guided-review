@@ -6,12 +6,14 @@
    for the agent to place properly. A file the reading order lists that no
    longer differs keeps its place, marked, rather than shifting the order. */
 
-import { type BeforeFile } from "./baseSync.ts";
 import { isImagePath } from "./imagePaths.ts";
 import { commits, files, groups, leftOut, reviewId, server, setLiveFiles, sides, stats } from "./payload.ts";
 import { bumpPayloadVersion, makeStore, toast } from "./stores.ts";
 
 export type ScopeFile = { path: string; status: string; from?: string };
+
+/** a file as /before serves it: at the review's base, and as it is now */
+type BeforeFile = { before: string; after: string; sha: string; added: number; removed: number };
 
 /** listed files the change no longer covers, by path, with why: reverted
     or gone ("not in the change any more"), or "renamed to …" */
@@ -21,6 +23,12 @@ const signature = (entries: Iterable<[string, string]>): string => JSON.stringif
 
 let liveSignature = "[]";
 let inFlight = false;
+
+/** a rebuild replaced the payload, live chapter and all - the next poll
+    adds back whatever is still out of the reading order */
+export const resetLiveFiles = (): void => {
+  liveSignature = "[]";
+};
 
 export const followScope = async (scope: ScopeFile[] | null | undefined): Promise<void> => {
   // a commit-by-commit review's rows are history: there is no one scope

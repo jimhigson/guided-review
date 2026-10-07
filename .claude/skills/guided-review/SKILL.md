@@ -668,13 +668,20 @@ others degrade safely to read-only-with-notes.
   therefore survives new commits, rebases and amends. A head that is still a
   bare SHA, because no single branch points at it, matches a checkout that
   contains it.
-- **The before side:** it follows the base ref the review was built against
-  (`--base` in PR mode, `HEAD` in working-tree mode). On every poll the server
-  works out where the before side should be read from: the merge base of base
-  and head, or `HEAD`. When that moves (a rebase, merging the base in, a
-  commit under a working tree), the page re-reads every file's before side
-  and line counts from there, and toasts what moved it from the reflog.
-  Unsaved edits on the right are kept.
+- **Rebuilt when the branch moves:** a commit, a rebase, an amend, or
+  merging the base in moves the head commit or the merge base. The server
+  notices on its next poll, waiting while a rebase or merge is still under
+  way, and runs `build.ts` again in the background. It uses the recipe the
+  first build embedded in the page (`#recipe`: its arguments with the head
+  named as a branch, the authored groups json, and the files it left out),
+  keeping the review's id, so notes and ticks carry over. The rebuilt HTML
+  replaces the old one, so a reload or a server restart gets it too. The
+  page takes the new build on its next poll: sides, counts, moved-code
+  boxes, renames, images and links are all exactly what a fresh build would
+  give. Notes, ticks, open diffs, scroll position and unsaved edits stay. A
+  rebuild is the same code as a build, so nothing it works out can be left
+  stale. It only applies to a single PR or working-tree review, not a stack
+  or a per-commit reading.
 - **The file list:** the server compares the scope as it is now with the
   reading order. A file that came into scope since the build (new,
   newly changed, or renamed) gets a row in a last chapter, "Changed since
@@ -689,10 +696,10 @@ others degrade safely to read-only-with-notes.
   a rebase) is unticked and unfolded, with "Changed since read" until it is
   ticked again. Line counts follow every change, whether or not the diff is
   open.
-- **Not followed:** moved-code boxes are dropped when the base moves, since
-  they were found against the old base. Images aren't refreshed from disk. A
-  commit review, or a per-commit review, is history: its commit list and
-  rows are fixed.
+- **Not followed between rebuilds:** uncommitted edits on disk update the
+  after side and counts live, but moved-code boxes and images wait for the
+  next rebuild, which only a commit or a rebase triggers. A commit review,
+  or a per-commit review, is history: its commit list and rows are fixed.
 - **When an editor is read-only:** the hint under it says why, e.g. "the
   checkout is on `main` at `12caf54`, not `feature`".
 

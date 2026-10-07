@@ -24,7 +24,7 @@
  * then is a 409, not a silent clobber.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -56,6 +56,7 @@ type ShellReview = {
   reviewId?: string;
   baseSha?: string;
   baseRef?: string;
+  headSha?: string;
   block?: string;
 };
 
@@ -81,6 +82,7 @@ const gitOut = (repo: string, ...args: string[]): string | undefined => {
 import { commentOnPr, fetchPrComments, replyToThread } from "./github.ts";
 import { type GithubReview } from "./src/githubTypes.ts";
 import { type ScopeFile, scopeFiles } from "./scopeFiles.ts";
+import { type RebuildRecipe } from "./src/ReviewPayload.ts";
 
 const marker = "<!--REVIEW_SERVER-->";
 const shellPattern = /<script type="application\/json" id="shell">(?<json>[\s\S]*?)<\/script>/;
@@ -201,14 +203,22 @@ class ReviewStore {
   /** the commit this review's diff is measured from - live line counts diff
       against this, never the working checkout's index, so they always read
       against the same base the review itself does. Moves when `baseRef`
-      does: see ReviewPage.currentBase */
+      does: the page is rebuilt when it moves, and this follows the page */
   baseSha: string;
+  /** the head commit the page was built at - see ShellReview.headSha */
+  headSha: string | undefined;
   /** what the before side follows (ShellReview.baseRef), and the head it is
       measured against - absent where the before side is history */
   baseRef: string | undefined;
   head: string | undefined;
-  /** what moved the base last, as the reflog put it ("rebase (finish)…") */
-  baseReason = "";
+  /** what moved the branch last, as the reflog put it ("rebase (finish)…") */
+  movedBecause = "";
+  /** a rebuild is running, or failed for this head and base - not retried
+      until one of them moves again */
+  rebuilding = false;
+  failedFor = "";
+  /** why the last rebuild failed, for the page to say - cleared by one that works */
+  failure = "";
   /** the files the reading order lists, and those it leaves out on purpose -
       what a file coming into scope is new against */
   listed = new Set<string>();
@@ -349,6 +359,8 @@ class ReviewPage {
   #stores = new Map<string, ReviewStore>();
   #shellMtimeMs = -1;
   #reviews: ShellReview[] = [];
+  /** how the page was built, for building it again - see RebuildRecipe */
+  #recipe: RebuildRecipe | undefined;
 
   constructor(html: string, repo: string) {
     this.html = html;
@@ -395,6 +407,7 @@ class ReviewPage {
     );
     const labelled = carried.length > 1;
     const html = readFileSync(this.html, "utf8");
+    this.#recipe = ReviewPage.payloadOf(html, "recipe") as RebuildRecipe | undefined;
     for (const review of carried) {
       if (!this.#stores.has(review.reviewId)) {
         this.#stores.set(
@@ -412,6 +425,13 @@ class ReviewPage {
         );
       }
       const store = this.#stores.get(review.reviewId);
+      // a rebuild writes a new page: the store follows what it was built at
+      if (store !== undefined) {
+        store.baseSha = review.baseSha ?? store.baseSha;
+        store.headSha = review.headSha;
+        store.baseRef = review.baseRef;
+        store.head = review.head;
+      }
       const payload = review.block === undefined ? undefined : ReviewPage.payloadOf(html, review.block);
       if (store !== undefined && payload !== undefined) {
         store.listed = new Set(
@@ -511,11 +531,10 @@ class ReviewPage {
     return this.editable().reviewId;
   }
 
-  /** the commit the review's before side should be read at now: where its
-      head left its base ref - which a rebase, or merging the base in, moves -
-      or the base ref itself where there is no head (HEAD, under a working
-      tree). Asked every poll; a few milliseconds of git */
-  currentBase(store: ReviewStore): string {
+  /** where the review's before side should be read from now: where its head
+      left its base ref - which a rebase, or merging the base in, moves - or
+      the base ref itself where there is no head (HEAD, under a working tree) */
+  baseNow(store: ReviewStore): string {
     if (store.baseRef === undefined) {
       return store.baseSha;
     }
@@ -523,17 +542,106 @@ class ReviewPage {
       store.head === undefined ?
         gitOut(this.repo, "rev-parse", store.baseRef)
       : gitOut(this.repo, "merge-base", store.baseRef, store.head);
-    if (base === undefined || base === "" || base === store.baseSha) {
-      return store.baseSha;
+    return base === undefined || base === "" ? store.baseSha : base;
+  }
+
+  /** git is part-way through rewriting the branch: a rebase stops at every
+      conflict, and the review waits for it to finish rather than rebuilding
+      at each step */
+  #midOperation(): boolean {
+    return ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"].some((name) => {
+      const at = gitOut(this.repo, "rev-parse", "--git-path", name);
+      return at !== undefined && existsSync(resolve(this.repo, at));
+    });
+  }
+
+  /**
+   * the branch or its base has moved since the page was built - a commit, a
+   * rebase, an amend, merging the base in: build the review again, the same
+   * way it was first built, so that everything worked out from them (sides,
+   * counts, moved code, renames, images) is as a fresh build would make it.
+   * Notes and ticks are the review's own files, kept by its pinned id. The
+   * page notices the new build on its next poll and takes it in
+   */
+  maybeRebuild(store: ReviewStore): void {
+    const recipe = this.#recipe;
+    if (recipe === undefined || store.rebuilding || store.headSha === undefined || this.#midOperation()) {
+      return;
     }
-    const reason = gitOut(this.repo, "reflog", "-1", "--format=%gs", store.head ?? "HEAD") ?? "";
+    const head = gitOut(this.repo, "rev-parse", store.head ?? "HEAD");
+    const base = this.baseNow(store);
+    const now = `${head ?? ""} ${base}`;
+    if (head === undefined || (head === store.headSha && base === store.baseSha) || now === store.failedFor) {
+      return;
+    }
+    store.rebuilding = true;
+    store.movedBecause = gitOut(this.repo, "reflog", "-1", "--format=%gs", store.head ?? "HEAD") ?? "";
     console.log(
-      `  before side${store.label === "" ? "" : ` of ${store.label}`} now reads from ${base.slice(0, 9)}` +
-        (reason === "" ? "" : ` (${reason})`),
+      `  the branch moved${store.movedBecause === "" ? "" : ` (${store.movedBecause})`} - rebuilding the review`,
     );
-    store.baseSha = base;
-    store.baseReason = reason;
-    return base;
+    const dir = join(dirname(this.html), store.id);
+    const groups = join(dir, "rebuild-groups.json");
+    const leftOut = join(dir, "rebuild-left-out.json");
+    writeFileSync(groups, JSON.stringify(recipe.authored, null, 2), "utf8");
+    writeFileSync(leftOut, JSON.stringify(recipe.leftOut), "utf8");
+    const build = join(dirname(fileURLToPath(import.meta.url)), "build.ts");
+    const child = spawn(
+      process.execPath,
+      [build, ...recipe.args, "--groups", groups, "--left-out", leftOut, "--out", this.html],
+      { cwd: this.repo, stdio: ["ignore", "ignore", "pipe"] },
+    );
+    let errors = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      errors += chunk.toString("utf8");
+    });
+    child.on("close", (code) => {
+      store.rebuilding = false;
+      if (code === 0) {
+        store.failedFor = "";
+        store.failure = "";
+        console.log(`  rebuilt the review at ${head.slice(0, 9)}`);
+      } else {
+        store.failedFor = now;
+        const lines = errors.trim().split("\n");
+        const last = lines.slice(-5);
+        // the thrown error's own line, not the stack trace or object dump after it
+        store.failure =
+          lines.find((line) => /^\s*(\w*Error|error|fatal):/.test(line))?.trim() ?? last[last.length - 1] ?? "build.ts failed";
+        console.log(`  rebuilding the review failed:\n${last.join("\n")}`);
+      }
+    });
+  }
+
+  /** one carried review as the page has it now: its shell entry, payload and
+      image blocks, raw - what a page takes in after a rebuild */
+  built(store: ReviewStore): { review: ShellReview; payload: string; images: Record<string, string> } | undefined {
+    this.#refreshShell();
+    const review = this.#reviews.find((candidate) => candidate.reviewId === store.id);
+    if (review?.block === undefined) {
+      return undefined;
+    }
+    const html = readFileSync(this.html, "utf8");
+    const raw = (id: string): string | undefined => {
+      const start = html.indexOf(`<script type="application/json" id="${id}">`);
+      if (start === -1) {
+        return undefined;
+      }
+      const from = html.indexOf(">", start) + 1;
+      return html.slice(from, html.indexOf("</script>", from));
+    };
+    const payload = raw(review.block);
+    if (payload === undefined) {
+      return undefined;
+    }
+    const blocks = (JSON.parse(payload) as { images?: Record<string, { block: string }> }).images ?? {};
+    const images: Record<string, string> = {};
+    for (const { block } of Object.values(blocks)) {
+      const content = block === "" ? undefined : raw(block);
+      if (content !== undefined) {
+        images[block] = content;
+      }
+    }
+    return { review, payload, images };
   }
 
   /** the files the review's scope covers now, for the page to show any that
@@ -543,7 +651,7 @@ class ReviewPage {
     if (store.baseRef === undefined || store.perCommit) {
       return undefined;
     }
-    const scope = scopeFiles(this.repo, this.currentBase(store), onDisk ? undefined : store.head);
+    const scope = scopeFiles(this.repo, store.baseSha, onDisk ? undefined : store.head);
     store.announceScope(scope);
     return scope;
   }
@@ -558,7 +666,7 @@ class ReviewPage {
     from: string | undefined,
     onDisk: boolean,
   ): { before: string; after: string; sha: string; added: number; removed: number } {
-    const base = this.currentBase(store);
+    const base = store.baseSha;
     const was = from ?? path;
     const before = this.#show(`${base}:${was}`);
     const after = onDisk ? [] : [store.head ?? "HEAD"];
@@ -750,6 +858,16 @@ const handleGet = (
     respondJson(response, 200, store.readGithub() ?? null);
     return;
   }
+  if (path === "/payload") {
+    const built = store === undefined ? undefined : reviewPage.built(store);
+    if (built === undefined) {
+      respondJson(response, 404, { error: "unknown review" });
+      return;
+    }
+    // the blocks go back as the page carries them, escaped json text
+    respondJson(response, 200, built);
+    return;
+  }
   if (path === "/ticks") {
     if (store === undefined) {
       respondJson(response, 404, { error: "unknown review" });
@@ -815,15 +933,23 @@ const handlePost = (
   if (path === "/state") {
     // the page's poll: threads, and whether the files it has open have moved
     // under it (an agent acting on a note) - the latter only for the review
-    // the checkout can actually change
+    // the checkout can actually change. And whether the branch has moved
+    // since the page was built, which starts a rebuild
+    reviewPage.maybeRebuild(store);
     respondJson(response, 200, {
       notes: store.readNotes(),
       ticked: store.readTicks(),
       github: store.readGithub() ?? null,
       files: editable ? reviewPage.fileState((body.paths as string[]) ?? []) : {},
-      // where the before side should be read from now - the page re-reads it
-      // through /before when this moves under it
-      base: { sha: reviewPage.currentBase(store), reason: store.baseReason },
+      // what the page now being served was built at - a page built at
+      // something else takes the new build in
+      build: {
+        baseSha: store.baseSha,
+        headSha: store.headSha ?? null,
+        rebuilding: store.rebuilding,
+        movedBecause: store.movedBecause,
+        failure: store.failure,
+      },
       // the files the scope covers now - the page adds any that came into
       // it since the review was written
       scope: reviewPage.scopeNow(store, editable) ?? null,

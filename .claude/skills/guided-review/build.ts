@@ -22,7 +22,8 @@
  * lede and footer may contain html.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import { buildPage } from "./buildPage.ts";
@@ -42,7 +43,7 @@ import {
   headBranchOf,
   shortRef,
 } from "./reviewAssembly.ts";
-import { type ReviewShell, type ShellReview } from "./src/ReviewPayload.ts";
+import { type RebuildRecipe, type ReviewShell, type ShellReview } from "./src/ReviewPayload.ts";
 
 type Options = ReviewOptions & {
   groups: string;
@@ -64,6 +65,7 @@ const usage = (): never => {
       "  --id <name>                names the directory a served review keeps ticks and notes in",
       "  --max-side-lines <n>       longer files aren't embedded, their row says so (default 2000)",
       "  --max-images <n>           image files embedded with their versions (default 100)",
+      "  --left-out <json>          a rebuild's: the first build's left-out files (serve.ts passes it)",
     ].join("\n"),
   );
   process.exit(1);
@@ -85,6 +87,7 @@ const parseOptions = (): Options => {
       stack: { type: "string" },
       "max-side-lines": { type: "string", default: "2000" },
       "max-images": { type: "string", default: "100" },
+      "left-out": { type: "string" },
       help: { type: "boolean", default: false },
     },
   });
@@ -120,6 +123,47 @@ const parseOptions = (): Options => {
     stack: values.stack,
     maxSideLines: Number(values["max-side-lines"]),
     maxImages: Number(values["max-images"]),
+    ...(values["left-out"] === undefined ?
+      {}
+    : { leftOut: JSON.parse(readFileSync(values["left-out"], "utf8")) as string[] }),
+  };
+};
+
+/**
+ * build.ts's own arguments to run it again for this review - only where a
+ * served page follows its branch (a PR, or a working tree) and is one
+ * review, not a stack or a commit-by-commit reading
+ */
+const recipeFor = (
+  repo: string,
+  options: Options,
+  id: string,
+  authored: AuthoredGroups,
+  leftOut: string[],
+): RebuildRecipe | undefined => {
+  if (
+    (options.mode !== "pr" && options.mode !== "worktree") ||
+    options.stack !== undefined ||
+    (authored.commits ?? []).length > 0
+  ) {
+    return undefined;
+  }
+  const flag = (name: string, value: string | undefined): string[] =>
+    value === undefined ? [] : [`--${name}`, value];
+  return {
+    args: [
+      ...flag("mode", options.mode),
+      ...flag("base", options.base),
+      ...flag("head", options.head === undefined ? undefined : headBranchOf(repo, options.head)),
+      ...flag("pr", options.pr),
+      ...flag("github", options.github),
+      ...flag("id", id),
+      ...flag("repo", resolve(repo)),
+      ...flag("max-side-lines", String(options.maxSideLines)),
+      ...flag("max-images", String(options.maxImages)),
+    ],
+    authored,
+    leftOut,
   };
 };
 
@@ -139,6 +183,10 @@ const shellFor = (
       shortRef(headBranchOf(repo, options.head))
     : undefined;
   const baseRef = baseRefOf(options);
+  const headSha =
+    options.mode === "pr" ? git(repo, "rev-parse", options.head ?? "HEAD").trim()
+    : options.mode === "worktree" ? git(repo, "rev-parse", "HEAD").trim()
+    : undefined;
   const key = options.pr ?? (head === undefined ? "0" : branchKey(head));
   const own: ShellReview = {
     key,
@@ -149,6 +197,7 @@ const shellFor = (
     reviewId: collectedId,
     baseSha,
     ...(baseRef === undefined ? {} : { baseRef }),
+    ...(headSha === undefined ? {} : { headSha }),
     ...(head === undefined ? {} : { head }),
   };
 
@@ -192,14 +241,22 @@ const main = async (): Promise<void> => {
   const shell = shellFor(repo, options, payload.id, payload.meta.title, baseSha);
   const currentReview = shell.reviews.find((review) => review.key === shell.current);
   const { script, css } = await buildPage();
+  const recipe = recipeFor(repo, options, payload.id, authored, payload.leftOut ?? []);
   const html = page(
     shell,
-    [jsonBlock(currentReview?.block ?? reviewBlockId(shell.current), payload), ...imageBlocks],
+    [
+      jsonBlock(currentReview?.block ?? reviewBlockId(shell.current), payload),
+      ...imageBlocks,
+      ...(recipe === undefined ? [] : [jsonBlock("recipe", recipe)]),
+    ],
     script,
     finishCss(css),
   );
 
-  writeFileSync(options.out, html, "utf8");
+  // whole or not at all: a served page is read while it is being rebuilt
+  const partial = `${options.out}.${process.pid}.partial`;
+  writeFileSync(partial, html, "utf8");
+  renameSync(partial, options.out);
 
   const totals = Object.values(payload.stats).reduce(
     ([added, removed], [fileAdded, fileRemoved]) => [added + fileAdded, removed + fileRemoved],

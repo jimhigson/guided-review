@@ -43,6 +43,8 @@ export type ReviewOptions = {
   maxImages: number;
   /** conflict mode's resolved refs - see conflict.ts */
   conflict?: ConflictRefs;
+  /** a rebuild's: the first build's left-out files, not this one's */
+  leftOut?: string[];
 };
 
 const conflictRefsOf = (options: ReviewOptions): ConflictRefs => {
@@ -925,7 +927,8 @@ export const collectReview = (
   const baseSha = resolveBaseSha(repo, options);
   const listed = new Set(groups.flatMap((group) => group.items.map((item) => item.path)));
   const leftOut =
-    commits.length === 0 && baseRefOf(options) !== undefined ?
+    options.leftOut !== undefined ? options.leftOut
+    : commits.length === 0 && baseRefOf(options) !== undefined ?
       scopeFiles(repo, baseSha, options.mode === "pr" ? options.head : undefined)
         .map((file) => file.path)
         .filter((path) => !listed.has(path))

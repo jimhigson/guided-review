@@ -317,7 +317,53 @@ button.control.segment {
    together in the page's top-right corner */
 /* the editor picker leads the page's top-right corner, so it takes the
    push there and the theme switcher simply follows it */
-.editor-picker { margin-left: auto; }
+.editor-picker {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--body);
+}
+
+.editor-picker-label {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+/* a select that looks like a field to choose in - the page's own background
+   and an outline, where the header's buttons are filled */
+.field-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  background: var(--paper);
+  border: 1px solid var(--ink-faint);
+}
+
+.field-select:hover { border-color: var(--accent); }
+.field-select:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.field-select select {
+  appearance: none;
+  font-family: var(--body);
+  font-size: 1rem;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  padding: 0.25rem 1.6rem 0.25rem 0.5rem;
+  cursor: pointer;
+}
+
+.field-select select:focus-visible { outline: none; }
+
+/* the native arrow goes with appearance: none; a plain one in its place */
+.field-select::after {
+  content: "▾";
+  position: absolute;
+  right: 0.5rem;
+  color: var(--ink-faint);
+  pointer-events: none;
+}
 
 /* ---- contents sidebar --------------------------------------------------
    the whole reading order at a glance, ticked in step with the main pane */
