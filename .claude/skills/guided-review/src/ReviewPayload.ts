@@ -85,6 +85,9 @@ export type ReviewCommit = {
 
 export type ReviewMeta = {
   title: string;
+  /** the reader agreed to have the mechanical files ticked as read from the
+      start - a review with no ticks yet begins with them ticked */
+  preTickMechanical?: boolean;
   headerTitle?: string;
   eyebrow?: string;
   /** html */
@@ -194,6 +197,10 @@ export type ReviewPayload = {
   /** each file's moved code, keyed as `sides` is - absent for a file with
       none, and for a page built before moves were detected */
   moves?: Record<string, MovedRun[]>;
+  /** files the change touched only mechanically - imports, reformatting, a
+      rename, code moved verbatim - with what made each so, keyed as `sides`
+      is. See mechanicalChanges.ts */
+  mechanical?: Record<string, string>;
   /** where each renamed file came from, keyed as `sides` is - absent for a
       page built before renames were followed */
   renamedFrom?: Record<string, string>;

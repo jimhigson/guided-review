@@ -154,10 +154,22 @@ const loadFromBase = (base: string): Promise<MonacoApi> =>
   });
 
 /** rejects when monaco can't be had - a failure to show, never to paper over */
+/* an editor disposed while its diff is still being worked out - a row leaving
+   the view, a review being rebuilt under it - has monaco cancel that work by
+   rejecting a promise nobody is waiting on. That is monaco tidying up, not a
+   failure, and is the one rejection kept out of the console */
+const ignoreMonacoCancellation = (event: PromiseRejectionEvent): void => {
+  const reason: unknown = event.reason;
+  if (reason instanceof Error && reason.name === "Canceled" && reason.message === "Canceled") {
+    event.preventDefault();
+  }
+};
+
 export const loadMonaco = (): Promise<MonacoApi> => {
   if (monacoPromise !== undefined) {
     return monacoPromise;
   }
+  window.addEventListener("unhandledrejection", ignoreMonacoCancellation);
   if (window.__reviewServer === undefined) {
     monacoPromise = Promise.reject(
       new Error("code diffs need the review server - open this review through serve.ts"),

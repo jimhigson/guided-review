@@ -114,11 +114,6 @@ export const followBuild = async (build: ServerBuild | undefined): Promise<void>
       if (was === undefined) {
         continue;
       }
-      // the right side of an editable review is the disk, which the move
-      // didn't touch - only the left can have changed under the reader there
-      if (was.before !== side.before || (!editable && was.after !== side.after)) {
-        markChangedSinceRead(key);
-      }
       // the build read the committed head; the page had the disk, and keeps
       // it - with counts against the new base for what is really there. An
       // open editor knows the disk better than the snapshot does
@@ -140,6 +135,11 @@ export const followBuild = async (build: ServerBuild | undefined): Promise<void>
         editor.applyBefore(side.before, stats[key] ?? [0, 0], editable ? undefined : side.after);
         editor.refreshMoves();
       }
+    }
+    // every row up to date: a read one whose diff isn't the one read is no
+    // longer read
+    for (const key of Object.keys(sides)) {
+      markChangedSinceRead(key);
     }
     bumpPayloadVersion();
     toast(

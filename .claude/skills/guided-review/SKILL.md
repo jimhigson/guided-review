@@ -33,6 +33,8 @@ in the middle:
 | `resolveStack.ts` | the same target, or `--stack` for a `gh stack` (pushed or not) → the whole stack it belongs to, for the page's stack bar |
 | `buildStack.ts` | every authored review of a stack (one groups json per PR, from however many agents) → ONE page with an in-place review switcher |
 | `changedFiles.sh` | the scope's file list as `STATUS<TAB>PATH`, binaries dropped — except raster images, which get compare viewers |
+| `mechanical.ts` | the scope's purely mechanical files (imports only, reformatting, a rename whose old name is gone, code moved verbatim), for offering to pre-tick them |
+| `mechanicalChanges.ts` | the judging behind `mechanical.ts`, which `build.ts` also runs to mark those files in the page |
 | `moveDetection.ts` | the matching behind `moves.ts`, which `build.ts` also runs to box moved code in the page |
 | `moves.ts` | the scope's moved code: blocks of removed lines that reappear elsewhere, verbatim or with the few lines edited on the way, and how much of each file is moved rather than written |
 | *(you)* | author a groups json: the grouping, the order, the per-file notes |
@@ -403,6 +405,35 @@ Code that was moved *and* had its names changed throughout won't match. That
 is safe, because it is then reviewed as new code, the same as without this
 step.
 
+### Offer to pre-tick the mechanical changes
+
+Run this with `moves.ts`, before reading starts:
+
+```bash
+node .claude/skills/guided-review/mechanical.ts pr <base> <head>   # or commit <sha> / worktree
+```
+
+It lists the files the change touched **only mechanically**, with why:
+- **imports:** every changed line is an import;
+- **reformatted:** the same code once whitespace and trailing commas are set aside;
+- **rename `old → new`:** the same tokens but for one name swapped for another, where the old name is gone from the branch;
+- **moved:** code moved there verbatim.
+
+A file counts only if every change in it is one of these.
+
+**If there are any, ask the reader** (with your question tool) whether to
+tick them as read from the start. Quote the count and what they are, e.g.
+"54 of 258 files only change import paths (and one also has code moved in
+verbatim). Pre-tick them as read?". If they agree, set
+`"preTickMechanical": true` in the groups json's `meta`.
+
+The page marks every mechanical file with a "Mechanical" chip, whose tooltip
+gives the reason, either way. With pre-ticking on, a review nothing has been
+ticked in yet starts with those files ticked. They're still in the reading
+order, folded, and if one changes later it unticks like any other read file.
+Don't spend reading agents on them: give each a one-line note saying what
+the mechanical change is.
+
 ## 3. Per-file links to the forge
 
 `build.ts` derives these from the `origin` remote, so there is normally
@@ -708,8 +739,11 @@ others degrade safely to read-only-with-notes.
   place the file in the groups json with a note and rebuild. Files that were
   in scope at build time but left out of the reading order (lockfiles,
   generated code) are recorded as `leftOut` and never offered. A listed file
-  the change no longer covers keeps its place, marked "not in the change any
-  more" or "renamed to …", and the server prints that too.
+  the change no longer covers (reverted, deleted after being added, renamed
+  away) drops out of view, and comes back to its place if the change returns.
+  The server prints that too. Every listed file reads with the status it has
+  now, so a modification since deleted shows D. Rows are keyed by path, not
+  position, so rows leaving and rejoining never move open diffs or folds.
 - **The commit bar follows the branch too.** A served review that follows
   its branch always has a commit bar, even with one commit: "all" (the
   review as written), each commit of the branch since its base, then

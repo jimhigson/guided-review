@@ -48,13 +48,10 @@ export const loadStopSides = async (key: string, only?: Set<string>): Promise<vo
   const fresh = (await response.json()) as Record<string, StopSide>;
   for (const [path, side] of Object.entries(fresh)) {
     const fileKey = sideKey(path, key);
-    const was = sides[fileKey];
-    if (was !== undefined && (was.before !== side.before || was.after !== side.after)) {
-      markChangedSinceRead(fileKey);
-    }
     sides[fileKey] = { before: side.before, after: side.after, sha: side.sha };
     stats[fileKey] = [side.added, side.removed];
     liveEditors.get(fileKey)?.applyBefore(side.before, [side.added, side.removed], side.after);
+    markChangedSinceRead(fileKey);
   }
 };
 

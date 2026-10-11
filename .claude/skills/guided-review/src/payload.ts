@@ -138,20 +138,59 @@ export const selectReview = (key: string): void => {
   selectCommit(wanted !== undefined && commits.some((commit) => commit.sha === wanted) ? wanted : undefined);
 };
 
+/* the change as it is now, for the review's own whole-range rows: a listed
+   file it no longer covers - reverted, deleted after being added, renamed
+   away - is left out of view, and comes back to its place if it returns; a
+   listed file reads with the status it has now, so a modification since
+   deleted says D */
+let notInScope = new Set<string>();
+let statusNow = new Map<string, string>();
+
+export const setScopeNow = (gone: Set<string>, status: Map<string, string>): void => {
+  notInScope = gone;
+  statusNow = status;
+  selectCommit(selectedCommit);
+};
+
+/** every file the reading order lists for the whole range, in view or not */
+export const listedPaths = (): Set<string> =>
+  new Set(
+    allGroups
+      .filter((group) => group.commit === undefined && group.live !== true && group.stop !== true)
+      .flatMap((group) => group.items.map((item) => item.path)),
+  );
+
 /** read one commit of this review, or all of them (undefined) */
 export const selectCommit = (sha: string | undefined): void => {
   selectedCommit = sha;
   // a stop's chapters are that stop's alone: "all" is the review as written
-  const inView =
+  const chosen =
     sha === undefined ?
       allGroups.filter((group) => group.stop !== true)
     : allGroups.filter((group) => group.commit === sha);
+  const inView = chosen
+    .map((group) =>
+      group.commit !== undefined ? group : (
+        {
+          ...group,
+          items: group.items
+            .filter((item) => !notInScope.has(item.path))
+            .map((item) => {
+              const now = statusNow.get(item.path);
+              return now === undefined || now === item.status ? item : { ...item, status: now };
+            }),
+        }
+      ),
+    )
+    .filter((group) => group.items.length > 0);
   groups = inView;
   files = inView.flatMap((group, groupIndex) =>
-    group.items.map((item, itemIndex) => ({
+    group.items.map((item) => ({
       ...item,
       groupIndex,
-      id: `${groupIndex}-${itemIndex}`,
+      // by what it is, not where it sits: rows leaving and rejoining the view
+      // mustn't move open diffs and folds onto their neighbours
+      id: sideKey(item.path, group.commit),
       ...(group.commit === undefined ? {} : { commit: group.commit }),
     })),
   );

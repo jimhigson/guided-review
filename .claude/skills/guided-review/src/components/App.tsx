@@ -119,6 +119,10 @@ export const App = ({ initialTicks }: AppProps) => {
     () =>
       adoptTicks.subscribe(() => {
         const fresh = adoptTicks.get();
+        // ticked elsewhere - another tab, an agent - is read as of now there
+        for (const key of fresh) {
+          clearChangedSinceRead(key);
+        }
         setTicked(fresh);
         setCollapsed((folded) =>
           files.reduce(

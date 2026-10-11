@@ -88,7 +88,7 @@ const toLine = (path: string, line: number, text: string, row = path, hunk = -1)
 /** which lines are import or re-export statements, a multi-line one's
     names included - an extraction always brings its imports, so they aren't
     news */
-const importLines = (added: DiffLine[]): Set<DiffLine> => {
+export const importLines = (added: DiffLine[]): Set<DiffLine> => {
   const imports = new Set<DiffLine>();
   let open = false;
   added.forEach((line, index) => {
@@ -188,7 +188,7 @@ type Token = {
   detail: number;
 };
 
-const tokenPattern =
+export const tokenPattern =
   /\/\/.*|\/\*.*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[A-Za-z_$][\w$]*|\d[\w.]*|\S/g;
 
 /** a side's code as one token stream. Where its lines stop being contiguous

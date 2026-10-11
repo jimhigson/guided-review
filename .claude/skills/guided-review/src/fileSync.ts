@@ -49,8 +49,6 @@ export const reconcileFiles = async (onDisk: Record<string, string>): Promise<vo
       if (fresh === null) {
         break;
       }
-      // its diff isn't what was read any more
-      markChangedSinceRead(key);
 
       if (editor === undefined) {
         const side = sides[key];
@@ -60,14 +58,17 @@ export const reconcileFiles = async (onDisk: Record<string, string>): Promise<vo
           // no editor to report the new counts, so the row has to be told
           bumpPayloadVersion();
         }
-        continue;
-      }
-      if (editor.isDirty()) {
+      } else if (editor.isDirty()) {
         notifyDiskConflict(path, fresh, editor);
         continue;
+      } else {
+        editor.applyFromDisk(fresh);
+        toastFileUpdated(path);
       }
-      editor.applyFromDisk(fresh);
-      toastFileUpdated(path);
+      // only now, with the row up to date: is this still the diff that was
+      // read? The first sync of a page with uncommitted work is no change at
+      // all - the build snapshot it replaces was never what anyone read
+      markChangedSinceRead(key);
     }
   }
 };

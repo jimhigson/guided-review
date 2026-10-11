@@ -287,7 +287,8 @@ class ReviewStore {
 
   /** same tolerance as the notes: a half-written or hand-edited file must not
       take the server down mid-review */
-  readTicks(): string[] {
+  /** each a key, or {key, sha} - what the tick was of (see ticks.ts) */
+  readTicks(): unknown[] {
     try {
       const read: unknown = JSON.parse(ReviewStore.read(this.ticksFile) || "[]");
       return Array.isArray(read) ? (read as string[]) : [];
@@ -296,7 +297,7 @@ class ReviewStore {
     }
   }
 
-  writeTicks(ticked: string[]): void {
+  writeTicks(ticked: unknown[]): void {
     writeFileSync(this.ticksFile, JSON.stringify(ticked, null, 2), "utf8");
   }
 
@@ -981,7 +982,9 @@ const handleGet = (
       respondJson(response, 404, { error: "unknown review" });
       return;
     }
-    respondJson(response, 200, { ticked: store.readTicks() });
+    // fresh: nothing has ever been ticked here - the page may start the
+    // review with its mechanical files ticked, when the reader agreed to that
+    respondJson(response, 200, { ticked: store.readTicks(), fresh: !existsSync(store.ticksFile) });
     return;
   }
   respondJson(response, 404, { error: "not found" });
@@ -1030,7 +1033,7 @@ const handlePost = (
     return;
   }
   if (path === "/ticks") {
-    store.writeTicks((body.ticked as string[]) ?? []);
+    store.writeTicks((body.ticked as unknown[]) ?? []);
     respondJson(response, 200, { ok: true });
     return;
   }

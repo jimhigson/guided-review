@@ -10,6 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { type ConflictRefs, conflictFiles, pathOnSide } from "./conflict.ts";
+import { findMechanical } from "./mechanicalChanges.ts";
 import { collectDiffLines, findMoves, type MoveScope, movedRunsByRow } from "./moveDetection.ts";
 import { scopeFiles } from "./scopeFiles.ts";
 import { imageMimeOf, isImagePath } from "./src/imagePaths.ts";
@@ -795,25 +796,34 @@ const movesFor = (
   repo: string,
   options: ReviewOptions,
   groups: ReviewGroup[],
-): Record<string, MovedRun[]> => {
+): { moves: Record<string, MovedRun[]>; mechanical: Record<string, string> } => {
   const moves: Record<string, MovedRun[]> = {};
+  const mechanical: Record<string, string> = {};
   for (const commit of new Set(groups.map((group) => group.commit))) {
     const scope = moveScopeOf(options, commit);
     if (scope === undefined) {
       continue;
     }
-    const { removed, added } = collectDiffLines(repo, scope);
-    const byRow = movedRunsByRow(findMoves(removed, added));
+    const lines = collectDiffLines(repo, scope);
+    const found = findMoves(lines.removed, lines.added);
+    const byRow = movedRunsByRow(found);
+    // the branch as the scope reads it, for whether a renamed name is gone
+    const at = scope.mode === "commit" ? scope.ref : scope.mode === "pr" ? scope.head : undefined;
+    const plain = findMechanical(repo, lines, found, at);
     for (const group of groups.filter((candidate) => candidate.commit === commit)) {
       for (const { path } of group.items) {
         const runs = byRow[path];
         if (runs !== undefined) {
           moves[sideKey(path, commit)] = runs;
         }
+        const reason = plain[path];
+        if (reason !== undefined) {
+          mechanical[sideKey(path, commit)] = reason;
+        }
       }
     }
   }
-  return moves;
+  return { moves, mechanical };
 };
 
 /** every mechanical part of one review: diffs, sides, stats, links, images */
@@ -977,6 +987,7 @@ export const collectReview = (
   // served page follows the scope at all (see baseRefOf)
   const baseSha = resolveBaseSha(repo, options);
   const sideRefs = sideRefsOf(repo, options);
+  const analysed = movesFor(repo, options, groups);
   const listed = new Set(groups.flatMap((group) => group.items.map((item) => item.path)));
   const leftOut =
     options.leftOut !== undefined ? options.leftOut
@@ -993,7 +1004,8 @@ export const collectReview = (
       groups,
       sides,
       stats,
-      moves: movesFor(repo, options, groups),
+      moves: analysed.moves,
+      mechanical: analysed.mechanical,
       ...(sideRefs === undefined ? {} : { refs: sideRefs }),
       renamedFrom,
       ...(leftOut.length === 0 ? {} : { leftOut }),

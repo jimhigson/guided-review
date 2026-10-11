@@ -7,7 +7,6 @@ import { editors, editorStore } from "../editor.ts";
 import { firstChangedLine } from "../firstChangedLine.ts";
 import { movedLinesOf } from "../movedCode.ts";
 import { notesStore } from "../notes.ts";
-import { goneStore } from "../scopeSync.ts";
 import { changedSinceRead } from "../ticks.ts";
 import { githubStore } from "../github.ts";
 import { threadsOffLine } from "../githubTypes.ts";
@@ -16,6 +15,7 @@ import {
   fileKey,
   images,
   links,
+  payload,
   renamedFrom,
   repoRoot,
   stats,
@@ -128,8 +128,7 @@ export const Row = ({
   const href = links[fileKey(file)];
   const oldPath = renamedFrom?.[fileKey(file)];
   const changedSince = useStore(changedSinceRead).has(tickKeyOf(file)) && !ticked;
-  const goneByPath = useStore(goneStore);
-  const gone = file.commit === undefined ? goneByPath.get(file.path) : undefined;
+  const mechanical = payload.mechanical?.[fileKey(file)];
 
   return (
     <div
@@ -149,14 +148,14 @@ export const Row = ({
         <span class={`chip chip-${file.status}`}>
           {statusLabel[file.status] ?? file.status}
         </span>
+        {mechanical !== undefined && (
+          <span class="chip chip-mechanical" title={`changed only mechanically: ${mechanical}`}>
+            Mechanical
+          </span>
+        )}
         {changedSince && (
           <span class="chip chip-changed" title="its diff changed after you ticked it as read">
             Changed since read
-          </span>
-        )}
-        {gone !== undefined && (
-          <span class="chip chip-gone" title="the branch no longer differs from its base here - reverted, removed, or renamed">
-            {gone}
           </span>
         )}
         {conflict?.files[file.path] === "conflicted" && (

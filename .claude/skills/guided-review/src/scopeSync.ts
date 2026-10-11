@@ -3,31 +3,42 @@
    scope after it was written (a new file, one that starts changing, one
    renamed since) gets a row in a last chapter of its own, with a live diff,
    rather than staying invisible until a rebuild. The server prints each one
-   for the agent to place properly. A file the reading order lists that no
-   longer differs keeps its place, marked, rather than shifting the order. */
+   for the agent to place properly. A file the reading order lists that the
+   change no longer covers drops out of view, and every listed file reads
+   with the status it has now. */
 
 import { isImagePath } from "./imagePaths.ts";
-import { files, groups, leftOut, payload, reviewId, server, setLiveFiles, sides, stats } from "./payload.ts";
-import { bumpPayloadVersion, makeStore, toast } from "./stores.ts";
+import {
+  files,
+  groups,
+  leftOut,
+  listedPaths,
+  payload,
+  reviewId,
+  server,
+  setLiveFiles,
+  setScopeNow,
+  sides,
+  stats,
+} from "./payload.ts";
+import { bumpPayloadVersion, toast } from "./stores.ts";
 
 export type ScopeFile = { path: string; status: string; from?: string };
 
 /** a file as /before serves it: at the review's base, and as it is now */
 type BeforeFile = { before: string; after: string; sha: string; added: number; removed: number };
 
-/** listed files the change no longer covers, by path, with why: reverted
-    or gone ("not in the change any more"), or "renamed to …" */
-export const goneStore = makeStore(new Map<string, string>());
-
 const signature = (entries: Iterable<[string, string]>): string => JSON.stringify([...entries].sort());
 
 let liveSignature = "[]";
+let scopeSignature = "";
 let inFlight = false;
 
 /** a rebuild replaced the payload, live chapter and all - the next poll
     adds back whatever is still out of the reading order */
 export const resetLiveFiles = (): void => {
   liveSignature = "[]";
+  scopeSignature = "";
 };
 
 export const followScope = async (scope: ScopeFile[] | null | undefined): Promise<void> => {
@@ -43,20 +54,19 @@ export const followScope = async (scope: ScopeFile[] | null | undefined): Promis
     return;
   }
   const isLive = (file: (typeof files)[number]): boolean => groups[file.groupIndex]?.live === true;
-  const listed = new Set(files.filter((file) => !isLive(file)).map((file) => file.path));
+  // the reading order's own files, whether or not they're in view - one the
+  // change dropped is still listed, and comes back if the change does
+  const listed = listedPaths();
   const skipped = new Set(leftOut ?? []);
 
-  const inScope = new Set(scope.map((file) => file.path));
-  const renamedTo = new Map(
-    scope.flatMap((file) => (file.from === undefined ? [] : [[file.from, file.path] as const])),
-  );
-  const gone = new Map(
-    [...listed]
-      .filter((path) => !inScope.has(path))
-      .map((path) => [path, renamedTo.has(path) ? `renamed to ${renamedTo.get(path) ?? ""}` : "not in the change any more"]),
-  );
-  if (signature(gone) !== signature(goneStore.get())) {
-    goneStore.set(gone);
+  const inScope = new Map(scope.map((file) => [file.path, file.status]));
+  const gone = new Set([...listed].filter((path) => !inScope.has(path)));
+  const status = new Map([...listed].flatMap((path) => (inScope.has(path) ? [[path, inScope.get(path) ?? ""] as const] : [])));
+  const nextScope = JSON.stringify([[...gone].sort(), [...status].sort()]);
+  if (nextScope !== scopeSignature) {
+    scopeSignature = nextScope;
+    setScopeNow(gone, status);
+    bumpPayloadVersion();
   }
 
   // images have nothing the server can stream into a row yet

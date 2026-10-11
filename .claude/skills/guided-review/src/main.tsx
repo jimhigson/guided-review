@@ -32,6 +32,8 @@ import {
   loadTicks,
   setCurrentTicks,
   setLastFromServer,
+  takeEntries,
+  type TickEntry,
   ticksAreInFlight,
   ticksSignature,
 } from "./ticks.ts";
@@ -43,7 +45,7 @@ import "./page.css";
 
 type ServerState = {
   notes: Notes;
-  ticked: string[];
+  ticked: TickEntry[];
   /** the PR's comments, when this review has a PR and prComments.ts has read it */
   github?: GithubReview | null;
   /** path -> the sha its content currently hashes to on disk */
@@ -104,7 +106,7 @@ const pollState = async (): Promise<void> => {
   const incoming = ticksSignature(state.ticked ?? []);
   if (incoming !== getLastFromServer() && !ticksAreInFlight()) {
     setLastFromServer(incoming);
-    adoptTicks.set(new Set(state.ticked));
+    adoptTicks.set(takeEntries(state.ticked ?? []));
   }
 
   if (JSON.stringify(state.notes) !== JSON.stringify(notesStore.get())) {
@@ -186,6 +188,9 @@ const main = async (): Promise<void> => {
   startImageStatsSweep();
 
   if (server !== undefined) {
+    // straight away as well: until the first poll the rows hold the build's
+    // snapshot of each file, not the disk the reader is looking at
+    void pollState();
     setInterval(pollState, 2_000);
   }
 };
