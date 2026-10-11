@@ -182,6 +182,29 @@ export const App = ({ initialTicks }: AppProps) => {
   };
 
   const goToNext = (file: ReviewFile) => goTo(nextUnread(files, ticked, file));
+
+  // Space ticks (or unticks) the file being read - the one the contents
+  // highlights - unless it is being typed into: an editor, a note, a field
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== " " || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+        return;
+      }
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable=''], [contenteditable='true'], .monaco-editor") != null) {
+        return;
+      }
+      const file = files.find((candidate) => candidate.id === activeId);
+      if (file === undefined) {
+        return;
+      }
+      // over a button too: Space here is the review's key, not the button's
+      event.preventDefault();
+      tickFile(file, !ticked.has(tickKeyOf(file)));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeId, ticked]);
   setMovedCodeOpener(goTo);
 
   // scrolling waits for the render that opened whatever the file was inside.

@@ -1278,6 +1278,10 @@ diffs stay in `ui-monospace`.
   a glance, not a read. Imports never count towards a move: a split scatters
   them across every new file. A 3-way surface shows no moves, since a
   conflict resolution moves nothing of its own.
+- **Space ticks the file being read**, the one the contents highlights, and
+  Space again unticks it. It doesn't while you're typing into a Monaco
+  editor, a note, or any field. Over a focused button it ticks instead of
+  pressing the button. The row's tick box says so in its tooltip.
 - **Every diff says what it is between.** Above each editor:
   "diff `main~2 (52e9aab)` → `item-behaviours (a84dc34)`", plus "+ working
   tree" when the right side follows the disk. The names are git's own

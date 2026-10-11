@@ -142,6 +142,7 @@ export const Row = ({
           type="checkbox"
           checked={ticked}
           aria-label={`Read ${file.path}`}
+          title="Read — Space ticks the file you're on"
           onClick={(event) => event.stopPropagation()}
           onChange={(event) => onTick(event.currentTarget.checked)}
         />
