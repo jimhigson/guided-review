@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node build.ts",
     "serve": "node serve.ts",
-    "check:type": "tsc --noEmit"
+    "check:type": "tsc --noEmit",
+    "test:e2e": "node test/e2e.mjs"
   },
   "dependencies": {
     "chokidar": "^5.0.0",
@@ -17,6 +18,7 @@
     "@types/node": "^24.0.0",
     "bootstrap-icons": "1.13.1",
     "monaco-editor": "0.52.2",
+    "playwright": "1.61.1",
     "typescript": "^5.9.2",
     "vite": "^8.0.13"
   }

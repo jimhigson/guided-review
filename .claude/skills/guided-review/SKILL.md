@@ -43,6 +43,7 @@ in the middle:
 | `src/` | the page itself — a preact app in tsx: palette, layout, contents sidebar, diff rendering, the image compare viewer, notes, checkboxes |
 | `buildPage.ts` | bundles `src/` to the one script and one stylesheet `build.ts` inlines |
 | `serve.ts` | serves the built page — how a review is normally delivered; its editors become editable and save back to the working tree |
+| `test/e2e.mjs` | end-to-end checks of a served review in headless Chromium, against throwaway repos (`pnpm test:e2e`). Run it before committing any change to the skill |
 | `fixtures/commitStack.sh` | a throwaway stack of 2 PRs × 5 commits, for trying a per-commit review |
 | `prComments.ts` | a served page → its PRs' comments from GitHub, written beside each review for the page to show |
 | `awaitNotes.ts` | tells you each reviewer note as it's written - streaming, or `--once` per note, however your host can best be woken (see "Keeping the notes channel open") - so you act on it while they are still reading |
@@ -1057,7 +1058,12 @@ images.
 ## 9. Changing the page itself
 
 Only when the page needs to look or behave differently — otherwise skip this
-section entirely. Edit `src/` so every future review inherits the change. Load
+section entirely.
+
+**Test before you commit:** `pnpm check:type` and `pnpm test:e2e`, from the
+skill's directory. The repo's `CLAUDE.md` says how the suite works and how to
+add to it. Most of what the page does only shows in a browser, and most bugs
+here have been regressions in earlier behaviour, so run all of it. Edit `src/` so every future review inherits the change. Load
 the `artifact-design` skill before doing so. This is a utilitarian reference
 tool, not an editorial page — polished typographic hierarchy and a real (small)
 palette, no hero, no flourish.
