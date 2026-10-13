@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@headless-tree/core':
+        specifier: 1.7.0
+        version: 1.7.0
+      '@headless-tree/react':
+        specifier: 1.7.0
+        version: 1.7.0(@headless-tree/core@1.7.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       chokidar:
         specifier: ^5.0.0
         version: 5.0.0
@@ -38,6 +44,16 @@ importers:
         version: 8.2.1(@types/node@24.13.3)
 
 packages:
+
+  '@headless-tree/core@1.7.0':
+    resolution: {integrity: sha512-LxcX7LNepwfOPrZcs4PNfDwCzbi326uCAX5jYBfw94jI+pZQA7ANaE/No3LW0XFgcBcQtK/G2bInbVEhLF1C/Q==}
+
+  '@headless-tree/react@1.7.0':
+    resolution: {integrity: sha512-hcnG4mpTP98KVWZYqKsXNOoiv7ZQqZVM2jWwzEWtF+VDSz+1O/juMI+/Q0G4lZM+ez07/tmBBWjvZub/mLAUXQ==}
+    peerDependencies:
+      '@headless-tree/core': '*'
+      react: '*'
+      react-dom: '*'
 
   '@oxc-project/types@0.144.0':
     resolution: {integrity: sha512-nuhZIOLuI6TFQ32I/WnUx+SCPY7SdSKwgnFHydAuoS1+Z4BRcaP+RRJmGzl9lw+0OFF7UmaESf7KQRXaNLHypg==}
@@ -361,6 +377,14 @@ packages:
         optional: true
 
 snapshots:
+
+  '@headless-tree/core@1.7.0': {}
+
+  '@headless-tree/react@1.7.0(@headless-tree/core@1.7.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@headless-tree/core': 1.7.0
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
 
   '@oxc-project/types@0.144.0': {}
 

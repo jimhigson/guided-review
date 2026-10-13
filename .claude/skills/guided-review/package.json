@@ -10,6 +10,8 @@
     "test:e2e": "node test/e2e.mjs"
   },
   "dependencies": {
+    "@headless-tree/core": "1.7.0",
+    "@headless-tree/react": "1.7.0",
     "chokidar": "^5.0.0",
     "preact": "11.0.0-beta.1",
     "react-resizable-panels": "^3.0.6"

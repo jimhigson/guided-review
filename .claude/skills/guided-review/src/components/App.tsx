@@ -191,7 +191,8 @@ export const App = ({ initialTicks }: AppProps) => {
         return;
       }
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("input, textarea, select, [contenteditable=''], [contenteditable='true'], .monaco-editor") != null) {
+      // a tree in the contents has a Space of its own: it ticks what's selected
+      if (target?.closest("input, textarea, select, [contenteditable=''], [contenteditable='true'], .monaco-editor, [role='tree']") != null) {
         return;
       }
       const file = files.find((candidate) => candidate.id === activeId);

@@ -1078,7 +1078,85 @@ const scenarioL = async () => {
   }
 };
 
-const scenarios = { L: scenarioL, K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
+/* ---- M: the fs tree is a tree widget - keyboard, ranges, ticking a selection */
+const scenarioM = async () => {
+  const S = "M";
+  const repo = fresh("repo-m");
+  gitInit(repo);
+  write(repo, { "README.md": "m\n" });
+  sh("git add . && git commit -qm base && git checkout -qb feature", repo);
+  const paths = ["lib/a.ts", "lib/b.ts", "lib/c.ts", "web/d.ts", "web/e.ts"];
+  write(repo, Object.fromEntries(paths.map((path) => [path, `export const x = "${path}";\n`])));
+  sh("git add . && git commit -qm files", repo);
+  const { html } = build(
+    repo,
+    "m",
+    { meta: { title: "M" }, groups: [{ title: "All", items: paths.map((path) => ({ path, status: "A" })) }] },
+    `--mode pr --base main --head HEAD --id m-${Date.now()}`,
+  );
+  const server = await serve(repo, html);
+  const { page, errors } = await open(server.port);
+  await page.selectOption('select[aria-label="Contents view"]', "tree");
+  await page.waitForSelector(".fs-tree [role=treeitem]");
+  const item = (name) => page.locator(`.fs-tree [role=treeitem][aria-label="${name}"]`);
+  const ticked = async () =>
+    (await page.locator(".row").evaluateAll((rows) => rows.filter((row) => row.querySelector("input.tick").checked).map((row) => row.dataset.path))).sort();
+  const selected = () => page.locator('.fs-tree [role=treeitem][aria-selected="true"]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")));
+  const focused = () => page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? null);
+  const press = async (key) => {
+    await page.keyboard.press(key);
+    await sleep(300);
+  };
+
+  check(S, "the fs tree is a tree, one tab stop", (await page.locator('.fs-tree[role="tree"]').count()) === 1 && (await page.locator('.fs-tree [role=treeitem][tabindex="0"]').count()) === 1);
+  await item("lib/a.ts").click();
+  await item("lib/c.ts").click({ modifiers: ["Shift"] });
+  check(S, "shift-click selects the range", JSON.stringify(await selected()) === '["lib/a.ts","lib/b.ts","lib/c.ts"]', JSON.stringify(await selected()));
+  await press("Space");
+  check(S, "Space ticks everything selected", JSON.stringify(await ticked()) === '["lib/a.ts","lib/b.ts","lib/c.ts"]', JSON.stringify(await ticked()));
+  check(S, "...and the tree keeps the focus", (await focused()) !== null && (await focused()).startsWith("lib/"), String(await focused()));
+  await press("Space");
+  check(S, "Space again, all of it ticked, unticks it", (await ticked()).length === 0, JSON.stringify(await ticked()));
+
+  await item("lib/c.ts").click();
+  await item("web/d.ts").click({ modifiers: ["Shift"] });
+  await press("Space");
+  check(S, "a range through a directory's heading ticks only the range", JSON.stringify(await ticked()) === '["lib/c.ts","web/d.ts"]', JSON.stringify(await ticked()));
+  await press("Space");
+
+  await item("lib/a.ts").click();
+  await item("web/d.ts").click({ modifiers: ["ControlOrMeta"] });
+  check(S, "ctrl/cmd-click adds to the selection", JSON.stringify(await selected()) === '["lib/a.ts","web/d.ts"]', JSON.stringify(await selected()));
+  await item("web/d.ts").locator("input.tick").check();
+  await sleep(300);
+  check(S, "ticking a selected file's box ticks the whole selection", JSON.stringify(await ticked()) === '["lib/a.ts","web/d.ts"]', JSON.stringify(await ticked()));
+  await item("lib/b.ts").locator("input.tick").check();
+  await sleep(300);
+  check(S, "...but an unselected file's box ticks just that file", JSON.stringify(await ticked()) === '["lib/a.ts","lib/b.ts","web/d.ts"]', JSON.stringify(await ticked()));
+  await page.getByRole("button", { name: "Clear ticks" }).click();
+  await sleep(300);
+
+  await item("lib").click();
+  check(S, "clicking a directory folds it", (await item("lib").getAttribute("aria-expanded")) === "false");
+  await press("ArrowRight");
+  await press("ArrowDown");
+  check(S, "arrows move through the tree", (await focused()) === "lib/a.ts", String(await focused()));
+  await press("Enter");
+  check(S, "Enter goes to the file", new URL(page.url()).searchParams.get("file") === "lib/a.ts", page.url());
+  await press("Home");
+  await press("ArrowLeft");
+  check(S, "left folds a directory", (await item("lib").getAttribute("aria-expanded")) === "false");
+  await press("ArrowRight");
+  check(S, "right unfolds it", (await item("lib").getAttribute("aria-expanded")) === "true");
+  await press("Space");
+  check(S, "Space on a directory ticks every file in it", JSON.stringify(await ticked()) === '["lib/a.ts","lib/b.ts","lib/c.ts"]', JSON.stringify(await ticked()));
+  check(S, "...without Space on the page ticking the file being read as well", !(await ticked()).includes("web/d.ts"));
+  check(S, "no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
+  await page.close();
+  server.stop();
+};
+
+const scenarios = { M: scenarioM, L: scenarioL, K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
 try {
   browser = await chromium.launch();
 } catch (error) {
