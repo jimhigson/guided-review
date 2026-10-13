@@ -25,6 +25,7 @@ import {
 import { type ImageRow, type ReviewFile } from "../ReviewPayload.ts";
 import { registerRow, unregisterRow } from "../rowNodes.ts";
 import { payloadVersionStore, useStore } from "../stores.ts";
+import { AlsoEditedIn } from "./AlsoEditedIn.tsx";
 import { GithubThread } from "./GithubThread.tsx";
 import { MonacoDiff } from "./MonacoDiff.tsx";
 import { PathLabel } from "./PathLabel.tsx";
@@ -277,6 +278,7 @@ export const Row = ({
             class="note"
             dangerouslySetInnerHTML={{ __html: file.note ?? "" }}
           />
+          <AlsoEditedIn path={file.path} />
         </div>
         {imageRow !== undefined && imageStats !== undefined && (
           <p class="note img-note-line">{mechanicalNote(imageStats)}</p>

@@ -41,6 +41,7 @@ import {
   collectReview,
   finishCss,
   git,
+  historyOf,
   jsonBlock,
   page,
   readResolvedStack,
@@ -269,12 +270,19 @@ const main = async (): Promise<void> => {
 
   for (const [index, entry] of stack.entries.entries()) {
     const groupsPath = join(stackDir, `${entry.key}.groups.json`);
+    const previousEntry = stack.entries[index - 1];
+    // a stacked PR's base branch is the head of the PR below it, so the
+    // fetched sibling head is the exact base ref
+    const base = previousEntry === undefined ? trunk : headRefOf(previousEntry);
     const bare: ShellReview = {
       key: entry.key,
       label: entry.label,
       title: entry.title,
       url: entry.url,
       head: entry.head,
+      // every layer's, reviewed or not, so a row can say a file is edited in
+      // a PR nobody has written a review of yet
+      history: historyOf(repo, base, headRefOf(entry)),
     };
 
     if (!existsSync(groupsPath)) {
@@ -285,14 +293,11 @@ const main = async (): Promise<void> => {
 
     const authored = JSON.parse(readFileSync(groupsPath, "utf8")) as AuthoredGroups;
     authoredLayers.push({ entry, authored });
-    const previousEntry = stack.entries[index - 1];
     const collected = collectReview(
       repo,
       {
         mode: "pr",
-        // a stacked PR's base branch is the head of the PR below it, so the
-        // fetched sibling head is the exact base ref
-        base: previousEntry === undefined ? trunk : headRefOf(previousEntry),
+        base,
         head: headRefOf(entry),
         ...(entry.number === undefined ? {} : { pr: String(entry.number) }),
         maxSideLines: Number(values["max-side-lines"]),

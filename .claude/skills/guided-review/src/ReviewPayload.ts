@@ -230,6 +230,15 @@ export type ReviewPayload = {
   packageScope?: string;
 };
 
+/** one commit of a PR's history and the files it changes - what lets a row
+    say where else the same file is edited */
+export type HistoryCommit = {
+  sha: string;
+  short: string;
+  subject: string;
+  files: string[];
+};
+
 /**
  * one review the page carries - or, in a PR stack, knows of without carrying:
  * a stack sibling whose review nobody has authored yet has no `block`
@@ -274,6 +283,11 @@ export type ShellReview = {
   /** the every-layer-at-once review, which the stack bar offers as a toggle
       rather than as another layer of the chain */
   aggregate?: boolean;
+  /** every commit of this PR, oldest first, with the files each changes -
+      whether or not the review was authored commit by commit, and whether or
+      not the page carries it. Absent where the review isn't a PR (a working
+      tree, a commit) and from a page built before this */
+  history?: HistoryCommit[];
 };
 
 /**

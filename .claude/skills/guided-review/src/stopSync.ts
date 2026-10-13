@@ -5,7 +5,7 @@
    edit - so staged and working read as they are now. */
 
 import { liveEditors } from "./liveEditors.ts";
-import { commitAskedFor, reviewId, selectedCommit, server, setStops, sides, stats, stops } from "./payload.ts";
+import { askForCommit, commitAskedFor, reviewId, selectedCommit, server, setStops, sides, stats, stops } from "./payload.ts";
 import { type ReviewStop, sideKey } from "./ReviewPayload.ts";
 import { selectCommitAndRemount } from "./reviewSwitch.ts";
 import { bumpPayloadVersion } from "./stores.ts";
@@ -18,7 +18,6 @@ const fileSignature = (file: ReviewStop["files"][number]): string =>
 
 let signature = "";
 let inFlight = false;
-let restoredFromUrl = false;
 
 /** a rebuild replaced the payload, stop chapters and all */
 export const resetStops = (): void => {
@@ -83,12 +82,13 @@ export const followStops = async (next: ReviewStop[] | null | undefined): Promis
     }
     bumpPayloadVersion();
 
-    // a reload of a page that was reading a stop goes back to it, once the
-    // server has said what the stops are
-    if (!restoredFromUrl) {
-      restoredFromUrl = true;
-      const wanted = commitAskedFor;
-      if (wanted !== undefined && wanted !== selectedCommit && next.some((stop) => stop.key === wanted)) {
+    // a reload of a page that was reading a stop goes back to it, and a link
+    // to one of this review's commits gets there, once the server has said
+    // what the stops are
+    const wanted = commitAskedFor;
+    if (wanted !== undefined) {
+      askForCommit(undefined);
+      if (wanted !== selectedCommit && next.some((stop) => stop.key === wanted)) {
         selectCommitAndRemount(wanted);
       }
     }

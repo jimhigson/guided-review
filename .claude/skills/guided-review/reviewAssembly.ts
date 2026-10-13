@@ -16,6 +16,7 @@ import { scopeFiles } from "./scopeFiles.ts";
 import { imageMimeOf, isImagePath } from "./src/imagePaths.ts";
 import {
   type ConflictFileKind,
+  type HistoryCommit,
   type ImageRow,
   type ReviewCommit,
   type ImageVersion,
@@ -723,6 +724,24 @@ export const nameOfCommit = (repo: string, rev: string): SideRef => {
   }
   return { name: name === "" ? sha.slice(0, 9) : name.replace(/^remotes\//, "").replace(/^tags\//, ""), sha };
 };
+
+/** every commit from base to head, oldest first, with the paths each one
+    changes (a rename under its new path) - one git call for the lot */
+export const historyOf = (repo: string, base: string, head: string): HistoryCommit[] =>
+  git(repo, "log", "--reverse", "-M", "--name-only", "--format=%x00%H%x00%h%x00%s", `${base}..${head}`)
+    .split("\u0000")
+    .slice(1)
+    .reduce<string[][]>((records, field, index) => {
+      if (index % 3 === 0) {
+        records.push([]);
+      }
+      records.at(-1)?.push(field);
+      return records;
+    }, [])
+    .map(([sha = "", short = "", rest = ""]) => {
+      const [subject = "", ...files] = rest.split("\n");
+      return { sha, short, subject, files: files.filter((file) => file !== "") };
+    });
 
 /** what a scope's diffs are between, named. A branch given by name keeps
     that name, where name-rev might pick another ref at the same commit */

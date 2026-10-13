@@ -41,6 +41,7 @@ import {
   reviewBlockId,
   type ReviewOptions,
   headBranchOf,
+  historyOf,
   shortRef,
 } from "./reviewAssembly.ts";
 import { type RebuildRecipe, type ReviewShell, type ShellReview } from "./src/ReviewPayload.ts";
@@ -199,6 +200,7 @@ const shellFor = (
     ...(baseRef === undefined ? {} : { baseRef }),
     ...(headSha === undefined ? {} : { headSha }),
     ...(head === undefined ? {} : { head }),
+    ...(options.mode === "pr" && headSha !== undefined ? { history: historyOf(repo, baseSha, headSha) } : {}),
   };
 
   if (options.stack === undefined) {

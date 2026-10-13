@@ -1297,6 +1297,22 @@ diffs stay in `ui-monospace`.
   commit nothing refers to has no name, so it shows as a bare SHA. That
   makes a review of anything other than what the reader thinks it is,
   another branch or a stale or made-up commit, obvious at a glance.
+- **A file edited elsewhere says where.** Under a row's note: "also edited
+  in PR 1/3 commit 3/5", naming each other PR of the stack and each other
+  commit of a PR that changes the same file. Places the page is already
+  showing are left out, so reading a whole PR names only other PRs, and
+  reading every PR and every commit names nothing. Where the stack is one PR,
+  the PR part is dropped. Where a PR is one commit, the commit part is dropped.
+  Each place is a link to the file there: it switches review and commit in
+  place, and lands on the row the way a reload does (`?file=`). A commit only
+  the served commit bar knows is asked for, and opened when the next poll
+  lists it. A PR whose review the page doesn't carry is plain text. The
+  build records each PR's commits, and the files each one changes, as
+  `history` on its shell entry: every layer's in `buildStack.ts` (reviewed or
+  not), and the PR's own in `build.ts --mode pr`. The page works the rest
+  out from that (`alsoEditedIn.ts`). "PR 2/3" counts every PR in the stack.
+  `fixtures/commitStack.sh` edits `src/parse/block.ts` in both of its PRs to
+  try this on.
 - **A renamed file is diffed against its old path.** `build.ts` asks git
   for the scope's renames (`--name-status -M`) and reads a renamed file's
   before side, and its line counts, from the path it had then. Its row header

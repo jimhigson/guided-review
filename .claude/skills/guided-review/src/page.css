@@ -2215,6 +2215,23 @@ h2.band .commit-sha {
   color: var(--ink-faint);
 }
 
+/* under a row's note: the other PRs and commits that edit the same file,
+   each a link to it there. In --pr, as every which-PR reference is */
+.also-edited {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+  color: var(--ink-faint);
+}
+
+.also-place {
+  font-family: var(--mono);
+  font-size: 0.95em;
+  color: var(--pr);
+  text-decoration: none;
+}
+
+a.also-place:hover { text-decoration: underline; }
+
 .layer-chip {
   font-family: var(--mono);
   font-size: 0.9em;

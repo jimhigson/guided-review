@@ -213,10 +213,17 @@ const initialReviewKey = (): string => {
   return base !== undefined && base.block !== undefined ? base.key : shell.current;
 };
 
-/** the commit the url asked for as the page loaded - kept, because a served
-    review's stops (staged, working, …) only arrive with the first poll, and
-    selecting the review clears a commit it doesn't know of yet from the url */
-export const commitAskedFor = commitKeyFromUrl();
+/** the commit the url asked for as the page loaded, or a link has asked for
+    since - kept, because a served review's stops (its commits, staged,
+    working) only arrive with the next poll, and selecting the review clears a
+    commit it doesn't know of yet from the url */
+export let commitAskedFor = commitKeyFromUrl();
+
+/** read this commit once the commit bar knows it - or, called with nothing,
+    once it is known, forget it was asked for */
+export const askForCommit = (sha: string | undefined): void => {
+  commitAskedFor = sha;
+};
 
 selectReview(initialReviewKey());
 

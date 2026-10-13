@@ -921,7 +921,142 @@ const scenarioK = async () => {
   server.stop();
 };
 
-const scenarios = { K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
+/* ---- L: a file edited elsewhere says where, and links there ------------- */
+const scenarioL = async () => {
+  const S = "L";
+  const alsoOf = (page, path) =>
+    page.locator(`.row[data-path="${path}"]`).evaluateAll((rows) =>
+      rows.map((row) => row.querySelector(".also-edited")?.textContent.replace(/\s+/g, " ").trim() ?? ""),
+    );
+  const where = (page) => {
+    const url = new URL(page.url());
+    return { review: url.searchParams.get("review"), commit: url.searchParams.get("commit") ?? undefined };
+  };
+  /** whether the page has landed on the file: its row open and on screen */
+  const landedOn = (page, path) =>
+    page.evaluate((path) => {
+      const row = document.querySelector(`.row[data-path="${path}"]`);
+      const box = row?.getBoundingClientRect();
+      return row !== null && box !== undefined && box.top < window.innerHeight && box.bottom > 0 && !row.querySelector(".row-body").hidden;
+    }, path);
+  const follow = async (page, path, text) => {
+    await page.locator(`.row[data-path="${path}"] a.also-place`, { hasText: text }).first().click();
+    await sleep(1200);
+  };
+
+  // a stack of two PRs, read commit by commit: a.ts twice in one, b.ts in each
+  {
+    const repo = fresh("repo-l");
+    gitInit(repo);
+    write(repo, { "README.md": "l\n" });
+    sh("git add . && git commit -qm trunk && git checkout -qb one", repo);
+    const commit = (files, message) => {
+      write(repo, files);
+      sh(`git add . && git commit -qm '${message}'`, repo);
+      return sh("git rev-parse HEAD", repo).trim();
+    };
+    const one1 = commit({ "a.ts": "const a = 1;\n" }, "one: add a");
+    const one2 = commit({ "b.ts": "const b = 1;\n" }, "one: add b");
+    const one3 = commit({ "a.ts": "const a = 2;\n" }, "one: change a");
+    sh("git checkout -qb two", repo);
+    const two1 = commit({ "b.ts": "const b = 2;\n", "c.ts": "const c = 1;\n" }, "two: change b, add c");
+    const two2 = commit({ "c.ts": "const c = 2;\n" }, "two: change c");
+    const dir = fresh("stack-l");
+    const entry = (key, base) => ({ key, label: key, title: key, url: "", base, head: key });
+    writeFileSync(join(dir, "stack.json"), JSON.stringify({ current: "two", entries: [entry("one", "main"), entry("two", "one")] }));
+    const item = (path, status) => ({ path, status, note: `${path} here` });
+    const perCommit = (commits) => ({
+      meta: { title: "L" },
+      commits: commits.map(([ref, items]) => ({ ref, groups: [{ title: ref.slice(0, 7), items }] })),
+    });
+    writeFileSync(
+      join(dir, "one.groups.json"),
+      JSON.stringify(perCommit([[one1, [item("a.ts", "A")]], [one2, [item("b.ts", "A")]], [one3, [item("a.ts", "M")]]])),
+    );
+    writeFileSync(
+      join(dir, "two.groups.json"),
+      JSON.stringify(perCommit([[two1, [item("b.ts", "M"), item("c.ts", "A")]], [two2, [item("c.ts", "M")]]])),
+    );
+    const html = join(ROOT, "l.html");
+    sh(`node ${SKILL}/buildStack.ts --dir ${dir} --out ${html} --repo .`, repo);
+    const server = await serve(repo, html);
+    const { page, errors } = await open(server.port);
+    await page.goto(`http://127.0.0.1:${server.port}/?review=one`);
+    await page.waitForSelector(".row");
+    await sleep(800);
+
+    check(S, "a file edited in another PR says which PR and commit", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 2/2 commit 1/2"]', JSON.stringify(await alsoOf(page, "b.ts")));
+    check(S, "a file whose every edit is on the page says nothing", JSON.stringify(await alsoOf(page, "a.ts")) === '["",""]', JSON.stringify(await alsoOf(page, "a.ts")));
+
+    await follow(page, "b.ts", "PR 2/2");
+    check(S, "the PR link reads that whole PR", JSON.stringify(where(page)) === '{"review":"two"}', JSON.stringify(where(page)));
+    check(S, "...landed on the same file", await landedOn(page, "b.ts"));
+    check(S, "...which says where else it is edited, from there", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 1/2 commit 2/3"]', JSON.stringify(await alsoOf(page, "b.ts")));
+
+    await follow(page, "b.ts", "2/3");
+    check(S, "a commit link reads that commit of that PR", where(page).review === "one" && where(page).commit === one2, JSON.stringify(where(page)));
+    check(S, "...landed on the same file", await landedOn(page, "b.ts"));
+
+    await page.locator(".commit-bar .commit-step").nth(1).click();
+    await sleep(1000);
+    check(S, "reading one commit, the file's other commits in the same PR are named", JSON.stringify(await alsoOf(page, "a.ts")) === '["also edited in PR 1/2 commit 3/3"]', JSON.stringify(await alsoOf(page, "a.ts")));
+    await follow(page, "a.ts", "3/3");
+    check(S, "a link to another commit of the same PR reads it", where(page).review === "one" && where(page).commit === one3, JSON.stringify(where(page)));
+
+    await page.locator(".stack-bar .stack-all").click();
+    await sleep(1200);
+    // the commit being read comes along when the review it's in is there too
+    if (where(page).commit !== undefined) {
+      await page.locator(".commit-bar .commit-step").first().click();
+      await sleep(1000);
+    }
+    const everywhere = await page.locator(".also-edited").count();
+    check(S, "reading every PR and every commit, no row says it's edited elsewhere", where(page).review === "all" && everywhere === 0, `${where(page).review}, ${everywhere} lines`);
+    await page.locator(".commit-bar .commit-step", { hasText: two1.slice(0, 7) }).first().click();
+    await sleep(1000);
+    check(S, "reading one commit of every PR, the others are named", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 1/2 commit 2/3"]', JSON.stringify(await alsoOf(page, "b.ts")));
+    await follow(page, "b.ts", "2/3");
+    check(S, "...and linked within the every-PR review", where(page).review === "all" && where(page).commit === one2, JSON.stringify(where(page)));
+    check(S, "no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
+    await page.close();
+    server.stop();
+  }
+
+  // one PR, not authored per commit: its commits are the served commit bar's
+  {
+    const repo = fresh("repo-l2");
+    gitInit(repo);
+    write(repo, { "x.ts": "const x = 0;\n" });
+    sh("git add . && git commit -qm base && git checkout -qb solo", repo);
+    write(repo, { "x.ts": "const x = 1;\n", "y.ts": "const y = 1;\n" });
+    sh("git add . && git commit -qm 'x and y'", repo);
+    write(repo, { "x.ts": "const x = 2;\n" });
+    sh("git commit -qam 'x again'", repo);
+    const head = sh("git rev-parse HEAD", repo).trim();
+    const { html } = build(
+      repo,
+      "l2",
+      { meta: { title: "L2" }, groups: [{ title: "Both", items: [{ path: "x.ts", status: "M" }, { path: "y.ts", status: "A" }] }] },
+      `--mode pr --base main --head HEAD --id l2-${Date.now()}`,
+    );
+    const server = await serve(repo, html);
+    const { page, errors } = await open(server.port);
+    await until(async () => (await page.locator(".commit-bar .commit-step").count()) >= 3);
+    check(S, "reading the whole of a lone PR, nothing is elsewhere", (await page.locator(".also-edited").count()) === 0);
+    await page.locator(".commit-bar .commit-step").nth(1).click();
+    await sleep(1500);
+    check(S, "a lone PR's commit names the file's other commits, without a PR", JSON.stringify(await alsoOf(page, "x.ts")) === '["also edited in commit 2/2"]', JSON.stringify(await alsoOf(page, "x.ts")));
+    check(S, "...and a file only that commit edits says nothing", JSON.stringify(await alsoOf(page, "y.ts")) === '[""]', JSON.stringify(await alsoOf(page, "y.ts")));
+    await follow(page, "x.ts", "2/2");
+    check(S, "a link to a commit of the served bar reads it", where(page).commit === head, JSON.stringify(where(page)));
+    check(S, "...landed on the same file", await landedOn(page, "x.ts"));
+    check(S, "no page errors (lone PR)", errors.length === 0, errors.slice(0, 3).join(" | "));
+    await page.close();
+    server.stop();
+  }
+};
+
+const scenarios = { L: scenarioL, K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
 try {
   browser = await chromium.launch();
 } catch (error) {

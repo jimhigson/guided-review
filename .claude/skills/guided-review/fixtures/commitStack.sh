@@ -8,10 +8,12 @@
 #
 #   (main) <- parsing <- rendering
 #
-# parsing has three commits, rendering two, and two files are touched by more
-# than one commit - src/parse/tokenise.ts (twice in parsing) and
-# src/render/table.ts (twice in rendering) - so reading every commit at once
-# has the same file in it twice, each time with that commit's own diff.
+# parsing has three commits, rendering two, and three files are touched by
+# more than one commit - src/parse/tokenise.ts (twice in parsing),
+# src/render/table.ts (twice in rendering) and src/parse/block.ts (once in
+# each PR) - so reading every commit at once has the same file in it twice,
+# each time with that commit's own diff, and a file read in one PR or commit
+# says where else it is edited.
 #
 # Needs the gh-stack extension: gh extension install github/gh-stack
 set -euo pipefail
@@ -107,12 +109,17 @@ git commit --quiet -m "Recognise emphasis while tokenising"
 git switch --quiet -c rendering
 
 cat > src/render/html.ts <<'EOF'
-import { type Block } from "../parse/block.ts";
+import { type Block, isHeading } from "../parse/block.ts";
 
 export const renderBlock = (block: Block): string =>
-  block.kind === "heading" ?
+  isHeading(block) ?
     `<h${block.level}>${block.text}</h${block.level}>`
   : `<p>${block.text}</p>`;
+EOF
+cat >> src/parse/block.ts <<'EOF'
+
+export const isHeading = (block: Block): block is Extract<Block, { kind: "heading" }> =>
+  block.kind === "heading";
 EOF
 cat > src/render/table.ts <<'EOF'
 export const renderRow = (cells: string[]): string =>
