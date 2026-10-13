@@ -40,13 +40,16 @@ import {
   type AuthoredGroups,
   collectReview,
   finishCss,
+  editIndexOf,
+  fetchStackRefs,
   git,
-  historyOf,
   jsonBlock,
   page,
   readResolvedStack,
   reviewBlockId,
   type StackEntry,
+  stackHeadRef as headRefOf,
+  stackTrunkRef,
 } from "./reviewAssembly.ts";
 import {
   type ReviewGroup,
@@ -56,7 +59,13 @@ import {
 } from "./src/ReviewPayload.ts";
 
 /** one layer's authored review, kept for the every-layer-at-once one */
-type AuthoredLayer = { entry: StackEntry; authored: AuthoredGroups };
+type AuthoredLayer = {
+  entry: StackEntry;
+  authored: AuthoredGroups;
+  /** where it sits in the whole stack, "PR 2/3" - counting every PR, reviewed
+      or not, so a PR is called the same everywhere on the page */
+  place: string;
+};
 
 const escapeText = (text: string): string =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -69,12 +78,12 @@ const escapeText = (text: string): string =>
  */
 const stackSummary = (layers: AuthoredLayer[]): string =>
   layers
-    .map(({ entry, authored }, index) => {
+    .map(({ entry, authored, place }) => {
       const title = escapeText(authored.meta?.title ?? entry.label);
       const lede = authored.meta?.lede ?? "";
       return (
         `<span class="pr-summary">` +
-        `<span class="layer-chip" title="${escapeText(entry.label)}">PR ${index + 1}/${layers.length}</span> ` +
+        `<span class="layer-chip" title="${escapeText(entry.label)}">${place}</span> ` +
         `<strong>${title}</strong>` +
         (lede === "" ? "" : ` <span class="pr-summary-text">${lede}</span>`) +
         `</span>`
@@ -102,23 +111,20 @@ const aggregateKey = (entries: StackEntry[]): string =>
     what the every-PR review is read through when the layers were authored
     commit by commit */
 const mergeCommits = (layers: AuthoredLayer[]): AuthoredCommit[] =>
-  layers.flatMap(({ entry, authored }, index) =>
+  layers.flatMap(({ entry, authored, place }) =>
     (authored.commits ?? []).map((commit) => ({
       ...commit,
-      pr: `PR ${index + 1}/${layers.length} (${entry.label})`,
+      pr: `${place} (${entry.label})`,
     })),
   );
 
 const mergeLayers = (layers: AuthoredLayer[]): ReviewGroup[] => {
+  const notesByPath = new Map<string, { label: string; name: string; note: string }[]>();
+  const layersByPath = new Map<string, { label: string; name: string }[]>();
   // "PR 2/3" rather than the branch or the number: where a change sits in the
   // stack is what a reader needs, and it reads the same whether the stack has
   // been pushed or not
-  const place = (index: number): string => `PR ${index + 1}/${layers.length}`;
-
-  const notesByPath = new Map<string, { label: string; name: string; note: string }[]>();
-  const layersByPath = new Map<string, { label: string; name: string }[]>();
-  for (const [index, { entry, authored }] of layers.entries()) {
-    const label = place(index);
+  for (const { entry, authored, place: label } of layers) {
     for (const group of authored.groups ?? []) {
       for (const item of group.items) {
         layersByPath.set(item.path, [
@@ -155,7 +161,7 @@ const mergeLayers = (layers: AuthoredLayer[]): ReviewGroup[] => {
 
   const seen = new Set<string>();
   const groups: ReviewGroup[] = [];
-  for (const [index, { entry, authored }] of layers.entries()) {
+  for (const { entry, authored, place } of layers) {
     for (const group of authored.groups ?? []) {
       const items: ReviewItem[] = group.items
         .filter((item) => !seen.has(item.path))
@@ -164,12 +170,12 @@ const mergeLayers = (layers: AuthoredLayer[]): ReviewGroup[] => {
           return {
             ...item,
             ...(noteFor(item.path) === undefined ? {} : { note: noteFor(item.path) }),
-            layers: layersByPath.get(item.path) ?? [{ label: place(index), name: entry.label }],
+            layers: layersByPath.get(item.path) ?? [{ label: place, name: entry.label }],
           };
         });
       if (items.length > 0) {
         groups.push({
-          title: `${place(index)} (${entry.label}): ${group.title}`,
+          title: `${place} (${entry.label}): ${group.title}`,
           ...(group.blurb === undefined ? {} : { blurb: group.blurb }),
           items,
         });
@@ -202,60 +208,8 @@ const outPath = values.out;
 const repo = values.repo ?? git(process.cwd(), "rev-parse", "--show-toplevel").trim();
 const stack = readResolvedStack(join(stackDir, "stack.json"));
 
-/** the ref each layer's head is read from: a PR's fetched head
-    (resolvePr.sh's convention), or the branch itself when the layer is only
-    local and there is nothing to fetch */
-const headRefOf = (entry: StackEntry): string =>
-  entry.number === undefined ? entry.head : `refs/review/pr${entry.number}`;
-
-const exists = (ref: string): boolean =>
-  git(repo, "rev-parse", "--verify", "--quiet", ref).trim() !== "";
-
-/** the trunk the bottom layer sits on, preferring the remote's copy where
-    there is one - a stack nobody has pushed only has the local branch */
-const trunkRef = (trunk: string): string => {
-  // a local-only stack usually has no remote at all; fetching anyway would
-  // print git's "'origin' does not appear to be a git repository" over a
-  // build that is going fine
-  if (git(repo, "remote").split("\n").includes("origin")) {
-    try {
-      git(repo, "fetch", "--quiet", "origin", `${trunk}:refs/remotes/origin/${trunk}`);
-    } catch {
-      try {
-        git(repo, "fetch", "--quiet", "origin", trunk);
-      } catch {
-        /* offline - whatever was fetched before is what there is */
-      }
-    }
-  }
-  return exists(`origin/${trunk}`) ? `origin/${trunk}` : trunk;
-};
-
-const fetchRefs = (): void => {
-  for (const entry of stack.entries) {
-    if (entry.number === undefined) {
-      // local-only: its branch in this checkout is the only copy
-      if (!exists(entry.head)) {
-        throw new Error(`${entry.head} is not a branch here - a local stack is reviewed from its own checkout`);
-      }
-      continue;
-    }
-    try {
-      git(repo, "fetch", "--quiet", "--force", "origin", `refs/pull/${entry.number}/head:${headRefOf(entry)}`);
-    } catch (error) {
-      // offline is survivable if an earlier fetch left the ref behind
-      if (!exists(headRefOf(entry))) {
-        throw new Error(`could not fetch pr ${entry.number} and no ${headRefOf(entry)} exists locally`, {
-          cause: error,
-        });
-      }
-      console.error(`warning: fetching pr ${entry.number} failed; using the existing local ref`);
-    }
-  }
-};
-
 const main = async (): Promise<void> => {
-  fetchRefs();
+  fetchStackRefs(repo, stack.entries, true);
 
   const reviews: ShellReview[] = [];
   const reviewBlocks: string[] = [];
@@ -266,23 +220,23 @@ const main = async (): Promise<void> => {
   if (bottom === undefined) {
     throw new Error("stack.json has no entries");
   }
-  const trunk = trunkRef(bottom.base);
+  const trunk = stackTrunkRef(repo, bottom.base);
+  // a stacked PR's base branch is the head of the PR below it, so the
+  // fetched sibling head is the exact base ref
+  const baseOf = (index: number): string => {
+    const below = stack.entries[index - 1];
+    return below === undefined ? trunk : headRefOf(below);
+  };
 
   for (const [index, entry] of stack.entries.entries()) {
     const groupsPath = join(stackDir, `${entry.key}.groups.json`);
-    const previousEntry = stack.entries[index - 1];
-    // a stacked PR's base branch is the head of the PR below it, so the
-    // fetched sibling head is the exact base ref
-    const base = previousEntry === undefined ? trunk : headRefOf(previousEntry);
+    const base = baseOf(index);
     const bare: ShellReview = {
       key: entry.key,
       label: entry.label,
       title: entry.title,
       url: entry.url,
       head: entry.head,
-      // every layer's, reviewed or not, so a row can say a file is edited in
-      // a PR nobody has written a review of yet
-      history: historyOf(repo, base, headRefOf(entry)),
     };
 
     if (!existsSync(groupsPath)) {
@@ -292,7 +246,7 @@ const main = async (): Promise<void> => {
     }
 
     const authored = JSON.parse(readFileSync(groupsPath, "utf8")) as AuthoredGroups;
-    authoredLayers.push({ entry, authored });
+    authoredLayers.push({ entry, authored, place: `PR ${index + 1}/${stack.entries.length}` });
     const collected = collectReview(
       repo,
       {
@@ -412,7 +366,13 @@ const main = async (): Promise<void> => {
     : carried.includes(stack.current) ? stack.current
     : firstCarried;
 
-  const shell: ReviewShell = { reviews, current };
+  // every layer's, reviewed or not, so a row can say a file is edited in a
+  // PR nobody has written a review of yet
+  const edits = editIndexOf(
+    repo,
+    stack.entries.map((entry, index) => ({ key: entry.key, base: baseOf(index), head: headRefOf(entry) })),
+  );
+  const shell: ReviewShell = { reviews, current, edits };
   const { script, css } = await buildPage();
   const html = page(shell, reviewBlocks, script, finishCss(css));
   writeFileSync(outPath, html, "utf8");

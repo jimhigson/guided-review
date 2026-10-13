@@ -961,9 +961,12 @@ const scenarioL = async () => {
     sh("git checkout -qb two", repo);
     const two1 = commit({ "b.ts": "const b = 2;\n", "c.ts": "const c = 1;\n" }, "two: change b, add c");
     const two2 = commit({ "c.ts": "const c = 2;\n" }, "two: change c");
+    // a PR nobody has reviewed still counts as one of the stack's
+    sh("git checkout -qb three", repo);
+    commit({ "b.ts": "const b = 3;\n" }, "three: change b");
     const dir = fresh("stack-l");
     const entry = (key, base) => ({ key, label: key, title: key, url: "", base, head: key });
-    writeFileSync(join(dir, "stack.json"), JSON.stringify({ current: "two", entries: [entry("one", "main"), entry("two", "one")] }));
+    writeFileSync(join(dir, "stack.json"), JSON.stringify({ current: "two", entries: [entry("one", "main"), entry("two", "one"), entry("three", "two")] }));
     const item = (path, status) => ({ path, status, note: `${path} here` });
     const perCommit = (commits) => ({
       meta: { title: "L" },
@@ -985,13 +988,14 @@ const scenarioL = async () => {
     await page.waitForSelector(".row");
     await sleep(800);
 
-    check(S, "a file edited in another PR says which PR and commit", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 2/2 commit 1/2"]', JSON.stringify(await alsoOf(page, "b.ts")));
+    check(S, "a file edited in another PR says which PR and commit", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 2/3 commit 1/2; PR 3/3"]', JSON.stringify(await alsoOf(page, "b.ts")));
     check(S, "a file whose every edit is on the page says nothing", JSON.stringify(await alsoOf(page, "a.ts")) === '["",""]', JSON.stringify(await alsoOf(page, "a.ts")));
 
-    await follow(page, "b.ts", "PR 2/2");
+    check(S, "a PR the page has no review of is named, not linked", (await page.locator('.row[data-path="b.ts"] span.also-place', { hasText: "PR 3/3" }).count()) === 1);
+    await follow(page, "b.ts", "PR 2/3");
     check(S, "the PR link reads that whole PR", JSON.stringify(where(page)) === '{"review":"two"}', JSON.stringify(where(page)));
     check(S, "...landed on the same file", await landedOn(page, "b.ts"));
-    check(S, "...which says where else it is edited, from there", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 1/2 commit 2/3"]', JSON.stringify(await alsoOf(page, "b.ts")));
+    check(S, "...which says where else it is edited, from there", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 1/3 commit 2/3; PR 3/3"]', JSON.stringify(await alsoOf(page, "b.ts")));
 
     await follow(page, "b.ts", "2/3");
     check(S, "a commit link reads that commit of that PR", where(page).review === "one" && where(page).commit === one2, JSON.stringify(where(page)));
@@ -999,7 +1003,7 @@ const scenarioL = async () => {
 
     await page.locator(".commit-bar .commit-step").nth(1).click();
     await sleep(1000);
-    check(S, "reading one commit, the file's other commits in the same PR are named", JSON.stringify(await alsoOf(page, "a.ts")) === '["also edited in PR 1/2 commit 3/3"]', JSON.stringify(await alsoOf(page, "a.ts")));
+    check(S, "reading one commit, the file's other commits in the same PR are named", JSON.stringify(await alsoOf(page, "a.ts")) === '["also edited in PR 1/3 commit 3/3"]', JSON.stringify(await alsoOf(page, "a.ts")));
     await follow(page, "a.ts", "3/3");
     check(S, "a link to another commit of the same PR reads it", where(page).review === "one" && where(page).commit === one3, JSON.stringify(where(page)));
 
@@ -1011,15 +1015,33 @@ const scenarioL = async () => {
       await sleep(1000);
     }
     const everywhere = await page.locator(".also-edited").count();
-    check(S, "reading every PR and every commit, no row says it's edited elsewhere", where(page).review === "all" && everywhere === 0, `${where(page).review}, ${everywhere} lines`);
+    check(S, "reading every reviewed PR and every commit, only the unreviewed PR is named", where(page).review === "all" && everywhere === 2 && JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 3/3","also edited in PR 3/3"]', `${where(page).review}, ${everywhere} lines, ${JSON.stringify(await alsoOf(page, "b.ts"))}`);
+    const bands = await page.locator(".band-pr").allInnerTexts();
+    check(S, "the every-PR review numbers PRs out of the whole stack, reviewed or not", JSON.stringify(bands) === '["PR 1/3 (one)","PR 2/3 (two)"]', JSON.stringify(bands));
     await page.locator(".commit-bar .commit-step", { hasText: two1.slice(0, 7) }).first().click();
     await sleep(1000);
-    check(S, "reading one commit of every PR, the others are named", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 1/2 commit 2/3"]', JSON.stringify(await alsoOf(page, "b.ts")));
+    check(S, "reading one commit of every PR, the others are named", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 1/3 commit 2/3; PR 3/3"]', JSON.stringify(await alsoOf(page, "b.ts")));
     await follow(page, "b.ts", "2/3");
     check(S, "...and linked within the every-PR review", where(page).review === "all" && where(page).commit === one2, JSON.stringify(where(page)));
     check(S, "no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
     await page.close();
     server.stop();
+
+    // one layer built on its own still knows where the rest of the stack edits
+    sh("git checkout -q two", repo);
+    const layer = build(
+      repo,
+      "l-layer",
+      { meta: { title: "two" }, groups: [{ title: "x", items: [item("b.ts", "M"), item("c.ts", "A")] }] },
+      `--mode pr --base one --head two --stack ${join(dir, "stack.json")} --id l-layer-${Date.now()}`,
+    );
+    const layerServer = await serve(repo, layer.html);
+    const opened = await open(layerServer.port);
+    check(S, "a layer built alone names the stack's other PRs and commits", JSON.stringify(await alsoOf(opened.page, "b.ts")) === '["also edited in PR 1/3 commit 2/3; PR 3/3"]', JSON.stringify(await alsoOf(opened.page, "b.ts")));
+    check(S, "...as text, since the page has no review of them", (await opened.page.locator('.row[data-path="b.ts"] a.also-place').count()) === 0);
+    check(S, "no page errors (a layer alone)", opened.errors.length === 0, opened.errors.slice(0, 3).join(" | "));
+    await opened.page.close();
+    layerServer.stop();
   }
 
   // one PR, not authored per commit: its commits are the served commit bar's

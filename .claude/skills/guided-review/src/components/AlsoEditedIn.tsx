@@ -1,5 +1,5 @@
 import { alsoEditedIn, goToPlace, placeHref } from "../alsoEditedIn.ts";
-import { type HistoryCommit, type ShellReview } from "../ReviewPayload.ts";
+import { type EditCommit, type ShellReview } from "../ReviewPayload.ts";
 
 /** a link to the file in another PR or commit - plain text where the page
     doesn't carry that PR's review, since there is nothing to switch to */
@@ -10,7 +10,7 @@ const PlaceLink = ({
   children,
 }: {
   review: ShellReview;
-  commit: HistoryCommit | undefined;
+  commit: EditCommit | undefined;
   path: string;
   children: string;
 }) => {

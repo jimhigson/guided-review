@@ -291,7 +291,8 @@ cumulative change, not one layer's slice of it. Each file appears **once**,
 under the first PR that touches it, and its row says which PRs changed it -
 the answer to "who did this?" for a file only one of them touched. Where more
 than one wrote a note about a file, the row carries all of them, each behind
-its own label. The page says **"PR 2/3"** rather than a branch name or the
+its own label. The page says **"PR 2/3"** (the second PR of a stack of three,
+whether or not every PR has a review) rather than a branch name or the
 word "layer" - where a change sits in the stack is what a reader needs, and it
 reads the same whether the stack has been pushed or not; the branch or PR
 number is the tooltip. It has its own ticks and notes, separate
@@ -1307,10 +1308,13 @@ diffs stay in `ui-monospace`.
   place, and lands on the row the way a reload does (`?file=`). A commit only
   the served commit bar knows is asked for, and opened when the next poll
   lists it. A PR whose review the page doesn't carry is plain text. The
-  build records each PR's commits, and the files each one changes, as
-  `history` on its shell entry: every layer's in `buildStack.ts` (reviewed or
-  not), and the PR's own in `build.ts --mode pr`. The page works the rest
-  out from that (`alsoEditedIn.ts`). "PR 2/3" counts every PR in the stack.
+  build gathers an edit index into the shell (`shell.edits`): every commit of
+  every PR of the stack, reviewed or not, and `byPath`, each path to the
+  commits that change it. A row looks up its own path and nothing else
+  (`alsoEditedIn.ts`). `buildStack.ts` indexes every layer. `build.ts --mode
+  pr` indexes its own PR, and with `--stack` every layer too, fetching the
+  siblings; one it can't fetch is a warning, not a failed build. "PR 2/3" is
+  the second PR of a stack of three, reviewed or not, everywhere on the page.
   `fixtures/commitStack.sh` edits `src/parse/block.ts` in both of its PRs to
   try this on.
 - **A renamed file is diffed against its old path.** `build.ts` asks git

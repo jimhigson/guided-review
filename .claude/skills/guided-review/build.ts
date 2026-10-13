@@ -40,8 +40,11 @@ import {
   readResolvedStack,
   reviewBlockId,
   type ReviewOptions,
+  editIndexOf,
+  fetchStackRefs,
   headBranchOf,
-  historyOf,
+  stackHeadRef,
+  stackTrunkRef,
   shortRef,
 } from "./reviewAssembly.ts";
 import { type RebuildRecipe, type ReviewShell, type ShellReview } from "./src/ReviewPayload.ts";
@@ -200,22 +203,45 @@ const shellFor = (
     ...(baseRef === undefined ? {} : { baseRef }),
     ...(headSha === undefined ? {} : { headSha }),
     ...(head === undefined ? {} : { head }),
-    ...(options.mode === "pr" && headSha !== undefined ? { history: historyOf(repo, baseSha, headSha) } : {}),
   };
 
+  // a PR's own commits, for its rows to say which of them edit each file
+  const ownEdits = (): ReviewShell =>
+    headSha === undefined ?
+      { reviews: [own], current: key }
+    : { reviews: [own], current: key, edits: editIndexOf(repo, [{ key, base: baseSha, head: headSha }]) };
+
   if (options.stack === undefined) {
-    return { reviews: [own], current: key };
+    return ownEdits();
   }
   const stack = readResolvedStack(options.stack);
   if (stack.entries.length < 2) {
-    return { reviews: [own], current: key };
+    return ownEdits();
   }
   // which layer this build *is*: its number where it has one, else its branch
   const mine = stack.entries.find((entry) =>
     options.pr === undefined ? entry.head === head : entry.number === Number(options.pr),
   );
+  // every layer's commits, so a row says where else in the stack its file is
+  // edited - this layer's as the review reads it, the others' as fetched. A
+  // sibling that can't be had is only a warning: it costs the index that
+  // layer, not the build
+  // this layer too: the one above is measured from its fetched head
+  fetchStackRefs(repo, stack.entries, false);
+  const [bottom] = stack.entries;
+  const trunk = bottom === undefined ? "" : stackTrunkRef(repo, bottom.base);
+  const edits = editIndexOf(
+    repo,
+    stack.entries.map((entry, index) => {
+      const below = stack.entries[index - 1];
+      return entry.key === mine?.key && headSha !== undefined ?
+          { key: entry.key, base: baseSha, head: headSha }
+        : { key: entry.key, base: below === undefined ? trunk : stackHeadRef(below), head: stackHeadRef(entry) };
+    }),
+  );
   return {
     current: mine?.key ?? key,
+    edits,
     reviews: stack.entries.map((entry) =>
       entry.key === mine?.key ?
         { ...own, key: entry.key, label: entry.label, title: entry.title, url: entry.url, head: entry.head, block: reviewBlockId(entry.key) }

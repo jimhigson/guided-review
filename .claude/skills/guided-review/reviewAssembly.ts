@@ -16,7 +16,8 @@ import { scopeFiles } from "./scopeFiles.ts";
 import { imageMimeOf, isImagePath } from "./src/imagePaths.ts";
 import {
   type ConflictFileKind,
-  type HistoryCommit,
+  type EditCommit,
+  type EditIndex,
   type ImageRow,
   type ReviewCommit,
   type ImageVersion,
@@ -727,7 +728,11 @@ export const nameOfCommit = (repo: string, rev: string): SideRef => {
 
 /** every commit from base to head, oldest first, with the paths each one
     changes (a rename under its new path) - one git call for the lot */
-export const historyOf = (repo: string, base: string, head: string): HistoryCommit[] =>
+const historyOf = (
+  repo: string,
+  base: string,
+  head: string,
+): { sha: string; short: string; subject: string; files: string[] }[] =>
   git(repo, "log", "--reverse", "-M", "--name-only", "--format=%x00%H%x00%h%x00%s", `${base}..${head}`)
     .split("\u0000")
     .slice(1)
@@ -742,6 +747,99 @@ export const historyOf = (repo: string, base: string, head: string): HistoryComm
       const [subject = "", ...files] = rest.split("\n");
       return { sha, short, subject, files: files.filter((file) => file !== "") };
     });
+
+/** one PR whose commits go into the edit index: its review's key, and the
+    refs its range runs between */
+export type EditLayer = { key: string; base: string; head: string };
+
+/**
+ * where every file is edited across these PRs, each commit by commit. A PR
+ * whose range can't be read - a sibling never fetched, offline - is left out
+ * with a warning, rather than failing a build that is otherwise fine
+ */
+export const editIndexOf = (repo: string, layers: EditLayer[]): EditIndex => {
+  const commits: EditCommit[] = [];
+  const byPath: Record<string, number[]> = {};
+  for (const layer of layers) {
+    let history: ReturnType<typeof historyOf>;
+    try {
+      history = historyOf(repo, layer.base, layer.head);
+    } catch {
+      console.error(`warning: couldn't read the commits of ${layer.key}; rows won't say where it edits them`);
+      continue;
+    }
+    for (const [index, { sha, short, subject, files }] of history.entries()) {
+      const at = commits.length;
+      commits.push({ sha, short, subject, review: layer.key, n: index + 1, of: history.length });
+      for (const path of files) {
+        (byPath[path] ??= []).push(at);
+      }
+    }
+  }
+  return { commits, byPath };
+};
+
+/** the ref a stack layer's head is read from: a PR's fetched head
+    (resolvePr.sh's convention), or the branch itself when the layer is only
+    local and there is nothing to fetch */
+export const stackHeadRef = (entry: StackEntry): string =>
+  entry.number === undefined ? entry.head : `refs/review/pr${entry.number}`;
+
+const refExists = (repo: string, ref: string): boolean =>
+  git(repo, "rev-parse", "--verify", "--quiet", ref).trim() !== "";
+
+/** the trunk a stack's bottom layer sits on, preferring the remote's copy
+    where there is one - a stack nobody has pushed only has the local branch */
+export const stackTrunkRef = (repo: string, trunk: string): string => {
+  // a local-only stack usually has no remote at all; fetching anyway would
+  // print git's "'origin' does not appear to be a git repository" over a
+  // build that is going fine
+  if (git(repo, "remote").split("\n").includes("origin")) {
+    try {
+      git(repo, "fetch", "--quiet", "origin", `${trunk}:refs/remotes/origin/${trunk}`);
+    } catch {
+      try {
+        git(repo, "fetch", "--quiet", "origin", trunk);
+      } catch {
+        /* offline - whatever was fetched before is what there is */
+      }
+    }
+  }
+  return refExists(repo, `origin/${trunk}`) ? `origin/${trunk}` : trunk;
+};
+
+/**
+ * fetches every layer's head to where stackHeadRef reads it. Strict, a layer
+ * that can't be had is an error; otherwise it is a warning, for a build that
+ * only wants the layer for its edit index
+ */
+export const fetchStackRefs = (repo: string, entries: StackEntry[], strict: boolean): void => {
+  const fail = (message: string, cause?: unknown): void => {
+    if (strict) {
+      throw new Error(message, { cause });
+    }
+    console.error(`warning: ${message}`);
+  };
+  for (const entry of entries) {
+    if (entry.number === undefined) {
+      // local-only: its branch in this checkout is the only copy
+      if (!refExists(repo, entry.head)) {
+        fail(`${entry.head} is not a branch here - a local stack is reviewed from its own checkout`);
+      }
+      continue;
+    }
+    try {
+      git(repo, "fetch", "--quiet", "--force", "origin", `refs/pull/${entry.number}/head:${stackHeadRef(entry)}`);
+    } catch (error) {
+      // offline is survivable if an earlier fetch left the ref behind
+      if (!refExists(repo, stackHeadRef(entry))) {
+        fail(`could not fetch pr ${entry.number} and no ${stackHeadRef(entry)} exists locally`, error);
+        continue;
+      }
+      console.error(`warning: fetching pr ${entry.number} failed; using the existing local ref`);
+    }
+  }
+};
 
 /** what a scope's diffs are between, named. A branch given by name keeps
     that name, where name-rev might pick another ref at the same commit */

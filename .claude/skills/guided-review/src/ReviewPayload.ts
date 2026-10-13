@@ -230,15 +230,6 @@ export type ReviewPayload = {
   packageScope?: string;
 };
 
-/** one commit of a PR's history and the files it changes - what lets a row
-    say where else the same file is edited */
-export type HistoryCommit = {
-  sha: string;
-  short: string;
-  subject: string;
-  files: string[];
-};
-
 /**
  * one review the page carries - or, in a PR stack, knows of without carrying:
  * a stack sibling whose review nobody has authored yet has no `block`
@@ -283,11 +274,32 @@ export type ShellReview = {
   /** the every-layer-at-once review, which the stack bar offers as a toggle
       rather than as another layer of the chain */
   aggregate?: boolean;
-  /** every commit of this PR, oldest first, with the files each changes -
-      whether or not the review was authored commit by commit, and whether or
-      not the page carries it. Absent where the review isn't a PR (a working
-      tree, a commit) and from a page built before this */
-  history?: HistoryCommit[];
+};
+
+/** one commit of a PR of the stack, as the edit index lists it */
+export type EditCommit = {
+  sha: string;
+  short: string;
+  subject: string;
+  /** the `key` of the PR's review in the shell */
+  review: string;
+  /** its place in that PR: commit `n` of `of`, from 1 */
+  n: number;
+  of: number;
+};
+
+/**
+ * which commits of which PRs edit each file - every PR of the stack, reviewed
+ * or not, and every commit of each, whether or not its review was authored
+ * commit by commit. Indexed by path, so a row finds where else its file is
+ * edited by looking up only that file's own edits
+ */
+export type EditIndex = {
+  /** every commit, in stack order, each PR's oldest first */
+  commits: EditCommit[];
+  /** a path (a renamed file under its new one) to the commits that change
+      it, as indices into `commits`, ascending */
+  byPath: Record<string, number[]>;
 };
 
 /**
@@ -316,6 +328,10 @@ export type ReviewShell = {
   reviews: ShellReview[];
   /** the `key` of the review shown first */
   current: string;
+  /** where each file is edited across the PRs and their commits - absent
+      where the review isn't of a PR (a working tree, a commit), and from a
+      page built before this */
+  edits?: EditIndex;
 };
 
 /** a file in reading order, carrying where it sits in the document */
