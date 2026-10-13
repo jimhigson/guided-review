@@ -24,6 +24,7 @@ import {
 import { type ShellReview, type Side } from "./ReviewPayload.ts";
 import { resetLiveFiles } from "./scopeSync.ts";
 import { loadStopSides, resetStops } from "./stopSync.ts";
+import { resetHolds } from "./heldSync.ts";
 import { bumpPayloadVersion, toast } from "./stores.ts";
 import { markChangedSinceRead } from "./ticks.ts";
 
@@ -98,6 +99,7 @@ export const followBuild = async (build: ServerBuild | undefined): Promise<void>
     selectReview(activeReview.key);
     resetLiveFiles();
     resetStops();
+    resetHolds();
     if (listed.length > 0) {
       setStops(listed);
       if (reading !== undefined && listed.some((stop) => stop.key === reading)) {

@@ -1,12 +1,59 @@
 import { useEffect, useRef } from "preact/hooks";
 
-import { activeReview, files, shell, total } from "../payload.ts";
+import { restack } from "../heldActions.ts";
+import { staleStore } from "../heldSync.ts";
+import { liveEditors } from "../liveEditors.ts";
+import { activeReview, files, holds, server, shell, total } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { type ShellReview } from "../ReviewPayload.ts";
 import { switchReview } from "../reviewSwitch.ts";
 import { loadStackProgress, setSiblingTicked, stackProgressStore } from "../stackProgress.ts";
 import { keepCurrentInView } from "./barScroll.ts";
-import { useStore } from "../stores.ts";
+import { toast, useStore } from "../stores.ts";
+
+/** checks the PR's branch out in the served checkout (`gh stack checkout`),
+    then reloads - which review the checkout can edit is settled as the page
+    loads, and that is what just changed */
+const switchCheckoutTo = async (branch: string): Promise<void> => {
+  if (server === undefined) {
+    return;
+  }
+  const dirty = [...liveEditors.values()].some((editor) => editor.isDirty());
+  if (dirty && !window.confirm(`Unsaved edits are lost on switching the checkout to ${branch}. Switch anyway?`)) {
+    return;
+  }
+  const response = await fetch("/switch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Review-Token": server.token },
+    body: JSON.stringify({ branch }),
+  }).catch(() => undefined);
+  if (response?.ok === true) {
+    window.location.reload();
+    return;
+  }
+  const said = response === undefined ? "the review server didn't answer" : ((await response.json()) as { error?: string }).error;
+  toast(`couldn't switch to ${branch}: ${said ?? "unknown error"}`, "warn");
+};
+
+/** beside each PR of a served stack: whether its branch is the checkout, or
+    a way to make it so */
+const CheckoutControl = ({ branch }: { branch: string | undefined }) => {
+  if (server === undefined || branch === undefined) {
+    return null;
+  }
+  return server.checkedOut === branch ?
+      <span class="stack-checked-out" title={`${branch} is checked out here`}>
+        checked out
+      </span>
+    : <button
+        type="button"
+        class="stack-switch"
+        title={`gh stack checkout ${branch}`}
+        onClick={() => void switchCheckoutTo(branch)}
+      >
+        switch to
+      </button>;
+};
 
 export type StackBarProps = { state: ReadingState };
 
@@ -23,6 +70,7 @@ export type StackBarProps = { state: ReadingState };
  */
 export const StackBar = ({ state }: StackBarProps) => {
   const progress = useStore(stackProgressStore);
+  const stale = useStore(staleStore);
   const bar = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -153,8 +201,24 @@ export const StackBar = ({ state }: StackBarProps) => {
                   </a>;
             })()
           }
+          {holds.some((held) => held.branch === review.head) && (
+            <span class="stack-held" title={`${review.head ?? ""} has edits held, not committed`}>
+              held
+            </span>
+          )}
+          <CheckoutControl branch={review.head} />
         </span>
       ))}
+      {stale.length > 0 && (
+        <button
+          type="button"
+          class="stack-restack"
+          title={`replay ${stale.join(", ")} onto the PR below, which has moved - all of them, or none if any conflicts`}
+          onClick={() => void restack()}
+        >
+          Rebase {stale.length} upstack
+        </button>
+      )}
     </nav>
   );
 };

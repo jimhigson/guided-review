@@ -10,6 +10,7 @@ import { type ReadingState } from "../readingState.ts";
 import { useStore } from "../stores.ts";
 import { setTheme, themeStore } from "../theme.ts";
 import { CommitBar } from "./CommitBar.tsx";
+import { HeldBar } from "./HeldBar.tsx";
 import { StackBar } from "./StackBar.tsx";
 
 export type HeaderProps = { state: ReadingState };
@@ -74,6 +75,7 @@ export const Header = ({ state }: HeaderProps) => {
     <header class="top" ref={headerRef}>
       <StackBar state={state} />
       <CommitBar />
+      <HeldBar />
       <div class="top-inner">
         <p class="top-title">{meta.headerTitle ?? meta.title}</p>
         {offline && (

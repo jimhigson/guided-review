@@ -706,8 +706,9 @@ export const rejectRepeatedPaths = (groups: ReviewGroup[]): void => {
 };
 
 /** a commit as git would name it: a branch or tag it is the tip of, or how
-    far behind one it is ("main~2"). Review refs fetched under refs/review are
-    the skill's own bookkeeping, not names anyone gave it */
+    far behind one it is ("main~2"). Review refs fetched under refs/review,
+    and held edits, backups and the like under refs/guided-review, are the
+    skill's own bookkeeping, not names anyone gave it */
 export const nameOfCommit = (repo: string, rev: string): SideRef => {
   const sha = git(repo, "rev-parse", "--verify", "--quiet", `${rev}^{commit}`).trim();
   if (sha === "") {
@@ -717,7 +718,15 @@ export const nameOfCommit = (repo: string, rev: string): SideRef => {
   try {
     name = execFileSync(
       "git",
-      ["name-rev", "--name-only", "--no-undefined", "--exclude=refs/review/*", "--exclude=refs/stash", sha],
+      [
+        "name-rev",
+        "--name-only",
+        "--no-undefined",
+        "--exclude=refs/review/*",
+        "--exclude=refs/guided-review/*",
+        "--exclude=refs/stash",
+        sha,
+      ],
       { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
     ).trim();
   } catch {

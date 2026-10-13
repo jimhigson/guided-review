@@ -58,6 +58,13 @@ export type MonacoTextModel = {
   onDidChangeContent: (listener: () => void) => MonacoDisposable;
   setValue: (value: string) => void;
   getValue: () => string;
+  getFullModelRange: () => MonacoRange;
+  /** an edit like typing: undoable, and the views follow it line by line */
+  pushEditOperations: (
+    beforeCursorState: null,
+    edits: { range: MonacoRange; text: string }[],
+    cursorComputer: () => null,
+  ) => unknown;
   getLinesContent: () => string[];
   dispose: () => void;
 };
@@ -129,6 +136,8 @@ export type MonacoDiffEditorOptions = {
   minimap: { enabled: boolean };
   scrollBeyondLastLine: boolean;
   renderOverviewRuler: boolean;
+  /** the per-change revert/copy menu in the diff's gutter */
+  renderGutterMenu: boolean;
   fontSize: number;
   lineHeight: number;
   hideUnchangedRegions: {

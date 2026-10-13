@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "preact/hooks";
 
 import { commits, selectedCommit, stops } from "../payload.ts";
-import { stagedRef, uncommittedRef, workingRef } from "../ReviewPayload.ts";
+import { isHeldKey, stagedRef, uncommittedRef, workingRef } from "../ReviewPayload.ts";
 import { selectCommitAndRemount } from "../reviewSwitch.ts";
 import { keepCurrentInView } from "./barScroll.ts";
 
@@ -18,10 +18,11 @@ export const CommitBar = () => {
 
   // a served review that follows its branch always has one: even a single
   // commit is worth telling apart from what is staged and what isn't
-  if (commits.length < 2 && stops.length === 0) {
+  if (commits.length < 2 && stops.length === 0 && !commits.some((commit) => isHeldKey(commit.sha))) {
     return null;
   }
-  const local = (sha: string): boolean => sha === uncommittedRef || sha === stagedRef || sha === workingRef;
+  const local = (sha: string): boolean =>
+    sha === uncommittedRef || sha === stagedRef || sha === workingRef || isHeldKey(sha);
 
   return (
     <nav class="commit-bar bar-scrolls" aria-label="Commits in this PR" ref={bar}>
@@ -48,7 +49,7 @@ export const CommitBar = () => {
           title={`${commit.short} ${commit.subject}${commit.pr === undefined ? "" : ` — ${commit.pr}`}`}
           onClick={() => selectCommitAndRemount(commit.sha)}
         >
-          <span class={`commit-sha ${local(commit.sha) ? "is-uncommitted" : ""}`}>
+          <span class={`commit-sha ${local(commit.sha) ? "is-uncommitted" : ""} ${isHeldKey(commit.sha) ? "is-held" : ""}`}>
             {commit.short}
           </span>
           {!local(commit.sha) && <span class="commit-subject">{commit.subject}</span>}

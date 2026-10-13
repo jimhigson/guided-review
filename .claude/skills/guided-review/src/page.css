@@ -1986,6 +1986,76 @@ a.stack-pr:focus-visible, button.stack-pr:focus-visible {
   border-bottom: 1px solid var(--rule);
 }
 
+/* held edits: saved from the page into a PR, not committed. They wear the
+   modified colour, as uncommitted work does everywhere else on the page */
+.commit-sha.is-held { font-family: var(--body); color: var(--mod); }
+.commit-step.is-current .commit-sha.is-held { color: var(--pr-ink); }
+
+.held-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.3rem 1.25rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--mod-bg);
+}
+
+.held-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.held-what { color: var(--ink); margin-right: 0.3rem; }
+.held-what code { font-family: var(--mono); color: var(--mod); }
+
+input.held-message {
+  flex: 1 1 14rem;
+  min-width: 10rem;
+  max-width: 28rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 0.15rem 0.4rem;
+}
+
+button.held-action {
+  font-family: var(--body);
+  font-size: 0.95rem;
+  color: var(--accent);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  padding: 0.15rem 0.55rem;
+  cursor: pointer;
+}
+
+button.held-action:disabled { color: var(--ink-faint); cursor: default; }
+button.held-action.is-quiet { color: var(--ink-soft); background: none; border-color: var(--rule); }
+
+/* on the stack bar: a PR with held edits, and the PRs a commit or amend left
+   on an older head of the one below */
+.stack-held {
+  flex: none;
+  font-size: 0.85rem;
+  color: var(--mod);
+}
+
+button.stack-restack {
+  flex: none;
+  font-family: var(--body);
+  font-size: 0.9rem;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: 0;
+  padding: 0.15rem 0.6rem;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .commit-label {
   font-family: var(--display);
   font-size: 16px;
@@ -2279,6 +2349,29 @@ a.also-place:hover { text-decoration: underline; }
    button/link may not contain interactive content) - this wrapper draws the
    one pill both appear to share, so the border/background isn't duplicated
    and clicking the pill's own edges still lands on one of its two children */
+/* beside a PR: the checkout is on it, or a way to put it there */
+.stack-switch, .stack-checked-out {
+  flex: none;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.stack-switch {
+  font-family: var(--body);
+  color: var(--pr);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--pr-edge);
+  text-underline-offset: 2px;
+}
+
+.stack-switch:hover { text-decoration-color: currentcolor; }
+
+.stack-checked-out { color: var(--ink-faint); }
+
 .stack-pr-pill {
   display: inline-flex;
   align-items: center;

@@ -8,6 +8,8 @@
  */
 
 import {
+  type HeldEdits,
+  heldKey,
   type ReviewCommit,
   type ReviewFile,
   type ReviewPayload,
@@ -232,18 +234,34 @@ export const liveChapterTitle = "Changed since this review was written";
 /** the served review's commit bar, as the server last listed it */
 export let stops: ReviewStop[] = [];
 
+/** every PR's held edits, as the server last listed them */
+export let holds: HeldEdits[] = [];
+
+/** the held edits this review shows: its own PR's - or, reading every PR,
+    all of them */
+export const holdsHere = (): HeldEdits[] =>
+  activeReview.aggregate === true ? holds : holds.filter((held) => held.branch === activeReview.head);
+
+/** a PR's held edits as a stop of the commit bar */
+const heldStop = (held: HeldEdits): ReviewStop => ({
+  key: heldKey(held.branch),
+  label: "held",
+  subject: `edits held after ${held.short}, not committed`,
+  refs: { before: { name: held.short, sha: held.anchor }, after: { name: "held edits", sha: "" } },
+  files: held.files,
+});
+
 /**
- * a served review's commit bar: one stop per commit of the branch, then
- * staged, then working. Each stop reads as the reading order filtered to the
- * files it changes - the review's own chapters, in its own order - with
- * whatever it changes beyond them in a chapter of its own. Their sides are
- * the server's to fill, when a stop is first looked at
+ * the stops of the commit bar - a served review's commits, staged and
+ * working, and any held edits - as chapters: each reads as the reading order
+ * filtered to the files it changes, the review's own chapters in its own
+ * order, with whatever it changes beyond them in a chapter of its own. Their
+ * sides are the server's to fill, when a stop is first looked at
  */
-export const setStops = (next: ReviewStop[]): void => {
-  stops = next;
+const composeStops = (): void => {
   allGroups = allGroups.filter((group) => group.stop !== true);
   const authored = allGroups.filter((group) => group.commit === undefined && group.live !== true);
-  for (const stop of next) {
+  for (const stop of [...stops, ...holdsHere().map(heldStop)]) {
     const changed = new Map(stop.files.map((file) => [file.path, file]));
     for (const group of authored) {
       const items = group.items.filter((item) => changed.has(item.path));
@@ -280,11 +298,28 @@ export const setStops = (next: ReviewStop[]): void => {
       }
     }
   }
-  if ((payload.commits ?? []).length === 0) {
-    commits = next.map((stop) => ({ sha: stop.key, short: stop.label, subject: stop.subject, refs: stop.refs }));
-  }
-  const still = selectedCommit === undefined || next.some((stop) => stop.key === selectedCommit);
+  const listed: ReviewCommit[] =
+    (payload.commits ?? []).length > 0 ?
+      (payload.commits ?? [])
+    : stops.map((stop) => ({ sha: stop.key, short: stop.label, subject: stop.subject, refs: stop.refs }));
+  // held edits sit right after the commit they were made against
+  commits = holdsHere().reduce((bar, held) => {
+    const entry = { ...heldStop(held), sha: heldKey(held.branch), short: "held" };
+    const at = bar.findIndex((commit) => commit.sha === held.anchor);
+    return at === -1 ? [...bar, entry] : [...bar.slice(0, at + 1), entry, ...bar.slice(at + 1)];
+  }, listed);
+  const still = selectedCommit === undefined || commits.some((commit) => commit.sha === selectedCommit);
   selectCommit(still ? selectedCommit : undefined);
+};
+
+export const setStops = (next: ReviewStop[]): void => {
+  stops = next;
+  composeStops();
+};
+
+export const setHolds = (next: HeldEdits[]): void => {
+  holds = next;
+  composeStops();
 };
 
 /**

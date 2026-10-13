@@ -7,7 +7,8 @@ import {
 } from "../createDiffEditor.tsx";
 import { diffViewStore } from "../diffView.ts";
 import { loadMonaco } from "../monacoLoader.ts";
-import { activeReviewIsEditable, commits, conflict, payload, server, sides } from "../payload.ts";
+import { saveTargetOf } from "../editTarget.ts";
+import { activeReview, commits, conflict, payload, server, sides } from "../payload.ts";
 import { type SideRef, type SideRefs, stagedRef, uncommittedRef, workingRef } from "../ReviewPayload.ts";
 
 /** a side as git names it, with its commit unless the name already is one */
@@ -140,14 +141,16 @@ export const MonacoDiff = ({
     return <p class="diff-error">code diff unavailable: {loadError}</p>;
   }
 
-  // a commit's diff is history: nothing on disk is that file as it had it
+  // a commit's diff is history, but any PR's commit can take edits: they are
+  // held for that PR, to be committed or amended from the commit bar
+  const target = saveTargetOf(commit);
+  const editable = target !== undefined;
   const historical = commit !== undefined && commit !== uncommittedRef && commit !== workingRef;
-  const editable = activeReviewIsEditable() && !historical;
 
   // said over every diff, so a review of anything but what the reader thinks
   // it is - another branch, a stale or made-up commit - is plain to see
   const refs = refsOf(commit);
-  const followsDisk = editable && refs?.after.name !== "working tree";
+  const followsDisk = target?.kind === "disk" && refs?.after.name !== "working tree";
 
   return (
     <>
@@ -165,10 +168,14 @@ export const MonacoDiff = ({
             "read-only — serve this review to edit and leave notes"
           : commit === stagedRef ?
             "read-only — this is what's staged; edit it under working, or in all"
+          : target?.kind === "held" ?
+            `editable — edits are held${target.row === "held" ? "" : historical ? " against this commit" : " on top of this PR"}, not committed; commit or amend them from the commit bar`
           : historical ?
             "read-only — this is the file as that commit had it; notes still work"
           : editable ?
             "editable — hover a line and click + to add a note"
+          : activeReview.aggregate === true ?
+            "read-only — reading every PR at once; edit it in one PR, or one commit"
           : `read-only — ${server.readOnlyReason ?? "the served checkout isn't this review's branch"}; notes still work`
           }
         </span>

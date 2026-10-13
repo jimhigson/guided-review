@@ -29,8 +29,10 @@ import {
 import { languageFor } from "./monacoLoader.ts";
 import { movedRunsOf } from "./movedCode.ts";
 import { notesFor } from "./notes.ts";
-import { activeReviewIsEditable, reviewId, server, sides } from "./payload.ts";
-import { type MovedRun, uncommittedRef, workingRef } from "./ReviewPayload.ts";
+import { type SaveTarget, saveTargetOf } from "./editTarget.ts";
+import { reviewId, server, sides } from "./payload.ts";
+import { type MovedRun } from "./ReviewPayload.ts";
+import { toast } from "./stores.ts";
 import { type LineMark, threeWayLayouter, type Zone } from "./threeWayLayout.ts";
 
 export type EditorStatus = { kind: string; text: string };
@@ -105,6 +107,11 @@ const buildDiffEditorHandle = (
     },
     // let the page keep scrolling when the pointer crosses an editor
     scrollbar: { alwaysConsumeMouseWheel: false },
+    // monaco's per-change gutter menu lays its items out from the last diff,
+    // so a file cut shorter (Revert, a held edit arriving) asks it for lines
+    // that are gone and it throws "Illegal value for lineNumber". The page's
+    // own gutter is for notes
+    renderGutterMenu: false,
   });
   editor.setModel({ original, modified });
 
@@ -303,12 +310,10 @@ export const createDiffEditor = (
     throw new Error(`${path} has no before/after sides to diff`);
   }
   const language = languageFor(path);
-  // only the review matching the served checkout can write back; in a stack
-  // page the other reviews' editors read only, though their notes still work.
-  // A commit's diff is history - the file as it was then - so there is nothing
-  // on disk it could be saved into
-  const editable =
-    activeReviewIsEditable() && (commit === undefined || commit === uncommittedRef || commit === workingRef);
+  // the served checkout's own rows save to disk; any other PR's rows save into
+  // that PR's held edits on the server - see editTarget.ts
+  const target = saveTargetOf(commit);
+  const editable = target !== undefined;
 
   // the model's uri decides the typescript worker's script kind, so it has to
   // carry the real extension - an extensionless uri parses .tsx as .ts
@@ -393,17 +398,46 @@ export const createDiffEditor = (
   };
 
   /** the review was rebuilt under the page - see rebuildSync.ts. The left side
-      takes the new before; the right is the disk's when editable, and kept
-      (unsaved edits and all), or the head's new content otherwise */
+      takes the new before; the right is the disk's when saved to disk, the
+      held edits' when saved into them (kept, as the rebuild doesn't carry
+      them - and setting the commit's own content here would autosave over
+      what is held), and the head's new content when read-only */
   const applyBefore = (before: string, counts: [number, number], after?: string): void => {
     otherModels.get("original")?.setValue(before);
-    if (after !== undefined && !editable) {
+    if (after !== undefined && target === undefined) {
       modified.setValue(after);
     }
     setCounts(counts);
   };
 
+  /** a save into the PR's held edits: the server checks the content it is
+      replacing is what this editor started from, as a disk save does */
+  const writeToHeld = async (held: Extract<SaveTarget, { kind: "held" }>): Promise<void> => {
+    setStatus({ kind: "", text: "holding…" });
+    const response = await fetch(`/held/save?review=${encodeURIComponent(reviewId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Review-Token": server?.token ?? "" },
+      body: JSON.stringify({ commit: held.commit, row: held.row, path, content: modified.getValue(), sha }),
+    }).catch(() => undefined);
+    if (response?.ok === true) {
+      const result = (await response.json()) as { sha: string; added: number; removed: number };
+      ({ sha } = result);
+      dirty = false;
+      setDirty(false);
+      setCounts([result.added, result.removed]);
+      setStatus({ kind: "state-saved", text: `held  +${result.added} −${result.removed}` });
+      return;
+    }
+    const said = response === undefined ? "the review server didn't answer" : ((await response.json().catch(() => ({}))) as { error?: string }).error;
+    setStatus({ kind: "state-error", text: "not held" });
+    toast(`not held: ${said ?? "save failed"}`, "warn");
+  };
+
   const writeToDisk = async (): Promise<void> => {
+    if (target?.kind === "held") {
+      await writeToHeld(target);
+      return;
+    }
     setStatus({ kind: "", text: "saving…" });
     const response = await fetch(
       `/save?review=${encodeURIComponent(reviewId)}`,
@@ -816,7 +850,10 @@ export const createDiffEditor = (
     // puts the file back the way the review found it - like any other edit,
     // that then syncs to disk on its own shortly after
     revert() {
-      modified.setValue(side.after);
+      // as an edit, not setValue: a reset under the diff's own view zones,
+      // which still point at the lines being taken away, throws inside monaco
+      // ("Illegal value for lineNumber") - and an edit can be undone
+      modified.pushEditOperations(null, [{ range: modified.getFullModelRange(), text: side.after }], () => null);
       setStatus({ kind: "state-dirty", text: "reverted" });
     },
     save: writeToDisk,

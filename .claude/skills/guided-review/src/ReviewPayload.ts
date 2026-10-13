@@ -63,6 +63,27 @@ export type ReviewStop = {
   files: { path: string; status: string; from?: string; sha?: string }[];
 };
 
+/** a PR's held edits, as the server lists them each poll: saved from the
+    page into the PR, not committed yet, and held against one of its commits
+    (the one being read when they were made) */
+export type HeldEdits = {
+  branch: string;
+  /** the commit they were made against - the commit bar shows them right
+      after it - and the commit holding them, which moves with every save */
+  anchor: string;
+  commit: string;
+  short: string;
+  subject: string;
+  /** held against the PR's last commit, so its whole-PR rows show them */
+  tip: boolean;
+  files: { path: string; status: string }[];
+};
+
+/** where a PR's held edits are read on the commit bar */
+export const heldKey = (branch: string): string => `held:${branch}`;
+
+export const isHeldKey = (key: string | undefined): boolean => key?.startsWith("held:") === true;
+
 /** one commit of a PR, as its own thing to read */
 /** one side of a diff, named the way git names it - a branch, a tag, or
     "main~2" - with the commit it is, so the page can say exactly what it is
@@ -317,6 +338,14 @@ export type RebuildRecipe = {
   /** the files the first build found left out of the reading order -
       carried, so a file that came into scope later isn't taken for one */
   leftOut: string[];
+  /** which script built it: build.ts (the default) or buildStack.ts, whose
+      args name its stack directory and whose authored groups live there */
+  kind?: "review" | "stack";
+  /** rebuilt whenever the branch or its base moves. Off for a review read
+      commit by commit, or a stack - those are rebuilt only when the page
+      itself moves their branches (committing held edits, restacking), since
+      their commits are named in what was authored */
+  follow?: boolean;
 };
 
 /**
@@ -361,6 +390,9 @@ export type ReviewServer = {
   /** why no review is editable, when none is - eg the checkout is on another
       branch - for the editors to say instead of just refusing input */
   readOnlyReason?: string;
+  /** the branch the served checkout had checked out when the page loaded -
+      the stack bar marks its PR, and offers to switch to the others */
+  checkedOut?: string;
 };
 
 declare global {

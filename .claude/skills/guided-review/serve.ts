@@ -26,7 +26,7 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,6 +51,8 @@ type Notes = Record<string, Note[]>;
 
 /** the slice of the page's shell this server routes on */
 type ShellReview = {
+  key?: string;
+  aggregate?: boolean;
   label: string;
   head?: string;
   reviewId?: string;
@@ -82,8 +84,25 @@ const gitOut = (repo: string, ...args: string[]): string | undefined => {
 import { commentOnPr, fetchPrComments, replyToThread } from "./github.ts";
 import { type GithubReview } from "./src/githubTypes.ts";
 import { nameOfCommit } from "./reviewAssembly.ts";
+import {
+  applyPlan,
+  changedBetween,
+  commitHoldRefs,
+  type Conflict,
+  countsBetween,
+  discardHold,
+  EditRefused,
+  fileAt,
+  heldOn,
+  planCommitHold,
+  planRestack,
+  restackRefs,
+  saveToHold,
+  staleAbove,
+  subjectOf,
+} from "./stackEdit.ts";
 import { parseNameStatus, type ScopeFile, scopeFiles, untrackedFiles } from "./scopeFiles.ts";
-import { type RebuildRecipe, type ReviewStop, stagedRef, workingRef } from "./src/ReviewPayload.ts";
+import { type EditIndex, type RebuildRecipe, type ReviewStop, stagedRef, workingRef } from "./src/ReviewPayload.ts";
 
 const marker = "<!--REVIEW_SERVER-->";
 const shellPattern = /<script type="application\/json" id="shell">(?<json>[\s\S]*?)<\/script>/;
@@ -361,6 +380,8 @@ class ReviewPage {
   #stores = new Map<string, ReviewStore>();
   #shellMtimeMs = -1;
   #reviews: ShellReview[] = [];
+  /** which PR each commit of the stack belongs to - see EditIndex */
+  #edits: EditIndex | undefined;
   /** how the page was built, for building it again - see RebuildRecipe */
   #recipe: RebuildRecipe | undefined;
 
@@ -402,8 +423,9 @@ class ReviewPage {
     if (found?.groups?.json === undefined) {
       throw new Error(`${this.html} carries no shell - rebuild it with the current build.ts`);
     }
-    const shell = JSON.parse(found.groups.json) as { reviews: ShellReview[] };
+    const shell = JSON.parse(found.groups.json) as { reviews: ShellReview[]; edits?: EditIndex };
     this.#reviews = shell.reviews;
+    this.#edits = shell.edits;
     const carried = shell.reviews.filter(
       (review): review is ShellReview & { reviewId: string } => review.reviewId !== undefined,
     );
@@ -533,6 +555,41 @@ class ReviewPage {
     return this.editable().reviewId;
   }
 
+  /** the branch the served checkout is on, or undefined when it is on none */
+  checkedOutBranch(): string | undefined {
+    const branch = gitOut(this.repo, "rev-parse", "--abbrev-ref", "HEAD");
+    return branch === undefined || branch === "HEAD" ? undefined : branch;
+  }
+
+  /**
+   * checks out another PR of the stack in the served checkout, the way the
+   * reader would from a terminal: `gh stack checkout <branch>`. Only a branch
+   * the page's own stack names - the page asks by name, and nothing else is
+   * ever run - and not while git is part-way through a rebase or merge. What
+   * `gh` says when it can't (uncommitted changes in the way, say) is the error
+   */
+  switchTo(branch: string): void {
+    this.#refreshShell();
+    if (!this.#reviews.some((review) => review.head === branch)) {
+      throw new Error(`${branch} is not a branch of this stack`);
+    }
+    if (this.#midOperation()) {
+      throw new Error("git is part-way through a rebase or merge here - finish or abort it first");
+    }
+    try {
+      execFileSync("gh", ["stack", "checkout", branch], {
+        cwd: this.repo,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 60_000,
+      });
+    } catch (error) {
+      const failure = error as { stderr?: string; stdout?: string; message?: string };
+      const said = `${failure.stderr ?? ""}${failure.stdout ?? ""}`.trim();
+      throw new Error(said === "" ? (failure.message ?? "gh stack checkout failed") : said, { cause: error });
+    }
+  }
+
   /** where the review's before side should be read from now: where its head
       left its base ref - which a rebase, or merging the base in, moves - or
       the base ref itself where there is no head (HEAD, under a working tree) */
@@ -567,7 +624,7 @@ class ReviewPage {
    */
   maybeRebuild(store: ReviewStore): void {
     const recipe = this.#recipe;
-    if (recipe === undefined || store.rebuilding || store.headSha === undefined || this.#midOperation()) {
+    if (recipe === undefined || recipe.follow === false || store.rebuilding || store.headSha === undefined || this.#midOperation()) {
       return;
     }
     const head = gitOut(this.repo, "rev-parse", store.head ?? "HEAD");
@@ -657,7 +714,7 @@ class ReviewPage {
    * authored commit by commit has its own bar
    */
   stops(store: ReviewStore, onDisk: boolean): ReviewStop[] | undefined {
-    if (store.baseRef === undefined || store.perCommit || this.#recipe === undefined) {
+    if (store.baseRef === undefined || store.perCommit || this.#recipe === undefined || this.#recipe.follow === false) {
       return undefined;
     }
     const stops: ReviewStop[] = [];
@@ -809,12 +866,284 @@ class ReviewPage {
     }
   }
 
+  /* ---- editing any PR: held edits, committing them, restacking ---------- */
+
+  /** the stack's PRs, trunk end first, as their branches - a review of one
+      PR is a stack of one */
+  layers(): string[] {
+    this.#refreshShell();
+    return this.#reviews
+      .filter((review) => review.aggregate !== true && review.head !== undefined)
+      .map((review) => review.head ?? "");
+  }
+
+  /** the branch a row's edits belong to: the PR the commit is from, or the
+      review's own branch for a row read across the whole PR */
+  branchOf(store: ReviewStore, commit: string | undefined): string | undefined {
+    if (commit !== undefined && this.#edits !== undefined) {
+      const found = this.#edits.commits.find((entry) => entry.sha === commit);
+      const review = this.#reviews.find((candidate) => candidate.key === found?.review);
+      if (review?.head !== undefined) {
+        return review.head;
+      }
+    }
+    return store.head;
+  }
+
+  /** every PR's held edits, with what the page needs to show them */
+  holds(): {
+    branch: string;
+    anchor: string;
+    commit: string;
+    short: string;
+    subject: string;
+    tip: boolean;
+    files: { path: string; status: string }[];
+  }[] {
+    return this.layers().flatMap((branch) => {
+      const held = heldOn(this.repo, branch);
+      if (held === undefined) {
+        return [];
+      }
+      return [
+        {
+          branch,
+          anchor: held.anchor,
+          commit: held.commit,
+          short: held.anchor.slice(0, 7),
+          subject: subjectOf(this.repo, held.anchor),
+          tip: gitOut(this.repo, "rev-parse", `refs/heads/${branch}`) === held.anchor,
+          files: changedBetween(this.repo, held.anchor, held.commit),
+        },
+      ];
+    });
+  }
+
+  /** the held edits' files: what they were at the commit held against, and
+      what they are held as */
+  heldSides(branch: string, paths: string[]): Record<string, { before: string; after: string; sha: string; added: number; removed: number }> {
+    const held = heldOn(this.repo, branch);
+    const sides: ReturnType<ReviewPage["heldSides"]> = {};
+    if (held === undefined) {
+      return sides;
+    }
+    for (const path of paths) {
+      this.resolveInRepo(path);
+      const after = fileAt(this.repo, held.commit, path);
+      const [added, removed] = countsBetween(this.repo, held.anchor, held.commit, path);
+      sides[path] = { before: fileAt(this.repo, held.anchor, path), after, sha: sha256(after), added, removed };
+    }
+    return sides;
+  }
+
+  /**
+   * a save from any PR's row, into that PR's held edits. `commit` is the
+   * commit the row reads, or absent for a row read across the whole PR,
+   * whose edits are held against the PR's last commit. The counts that come
+   * back are against what the row diffs from: the commit's parent, the
+   * review's base, or - on the held edits' own row - the commit they are
+   * held against
+   */
+  saveHeld(
+    store: ReviewStore,
+    body: { commit?: string; row?: string; path: string; content: string; sha: string },
+  ): { sha: string; added: number; removed: number } {
+    this.resolveInRepo(body.path);
+    const branch = this.branchOf(store, body.commit);
+    if (branch === undefined) {
+      throw new EditRefused("this review isn't of a branch - there is no PR to hold edits for");
+    }
+    const anchor = body.commit ?? gitOut(this.repo, "rev-parse", `refs/heads/${branch}`);
+    if (anchor === undefined) {
+      throw new EditRefused(`${branch} is not a branch here`);
+    }
+    const saved = saveToHold(this.repo, branch, anchor, body.path, body.content, body.sha);
+    console.log(`  held ${body.path} on ${branch}${saved.held ? "" : " (back as it was - nothing held)"}`);
+    const now = heldOn(this.repo, branch)?.commit ?? anchor;
+    const from = body.row === "held" ? anchor : body.commit === undefined ? store.baseSha : (gitOut(this.repo, "rev-parse", `${anchor}^`) ?? anchor);
+    const [added, removed] = countsBetween(this.repo, from, now, body.path);
+    return { sha: saved.sha, added, removed };
+  }
+
+  /** what moving branches has to bring along: every review's ticks against
+      the commits that were remade, the authored groups naming them, and the
+      page itself, rebuilt */
+  #afterMove(replaced: Map<string, string>): void {
+    const remapKey = (key: string): string => {
+      const colon = key.indexOf(":");
+      const commit = colon === -1 ? undefined : key.slice(0, colon);
+      const now = commit === undefined ? undefined : replaced.get(commit);
+      return now === undefined ? key : `${now}${key.slice(colon)}`;
+    };
+    for (const store of this.stores()) {
+      const ticks = store.readTicks();
+      const moved = ticks.map((entry) =>
+        typeof entry === "string" ? remapKey(entry)
+        : typeof entry === "object" && entry !== null && "key" in entry ? { ...entry, key: remapKey(String((entry as { key: unknown }).key)) }
+        : entry,
+      );
+      if (JSON.stringify(moved) !== JSON.stringify(ticks)) {
+        store.writeTicks(moved);
+      }
+    }
+    this.rebuildNow(replaced);
+  }
+
+  /** an authored groups json with every commit it names that was remade
+      named as what it became */
+  #remapAuthored(authored: unknown, replaced: Map<string, string>): unknown {
+    const groups = authored as { commits?: { ref: string }[] } | null;
+    if (groups?.commits === undefined) {
+      return authored;
+    }
+    return {
+      ...groups,
+      commits: groups.commits.map((commit) => {
+        const sha = gitOut(this.repo, "rev-parse", "--verify", "--quiet", `${commit.ref}^{commit}`);
+        const now = sha === undefined ? undefined : replaced.get(sha);
+        return now === undefined ? commit : { ...commit, ref: now };
+      }),
+    };
+  }
+
+  /** builds the page again, now, the way it was first built - so a reload
+      shows the branches where they are */
+  rebuildNow(replaced: Map<string, string> = new Map()): void {
+    const recipe = this.#recipe;
+    if (recipe === undefined) {
+      console.log("  this page has no rebuild recipe - rebuild it by hand to see the moved branches");
+      return;
+    }
+    const scripts = dirname(fileURLToPath(import.meta.url));
+    if (recipe.kind === "stack") {
+      const dir = recipe.args[recipe.args.indexOf("--dir") + 1] ?? "";
+      for (const name of readdirSync(dir).filter((file) => file.endsWith(".groups.json"))) {
+        const path = join(dir, name);
+        const authored = JSON.parse(readFileSync(path, "utf8")) as unknown;
+        const remapped = this.#remapAuthored(authored, replaced);
+        if (remapped !== authored) {
+          writeFileSync(path, `${JSON.stringify(remapped, null, 2)}\n`, "utf8");
+        }
+      }
+      execFileSync(process.execPath, [join(scripts, "buildStack.ts"), ...recipe.args, "--out", this.html], {
+        cwd: this.repo,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+    } else {
+      const dir = join(dirname(this.html), this.stores()[0]?.id ?? "rebuild");
+      const groups = join(dir, "rebuild-groups.json");
+      const leftOut = join(dir, "rebuild-left-out.json");
+      writeFileSync(groups, JSON.stringify(this.#remapAuthored(recipe.authored, replaced), null, 2), "utf8");
+      writeFileSync(leftOut, JSON.stringify(recipe.leftOut), "utf8");
+      execFileSync(
+        process.execPath,
+        [join(scripts, "build.ts"), ...recipe.args, "--groups", groups, "--left-out", leftOut, "--out", this.html],
+        { cwd: this.repo, stdio: ["ignore", "ignore", "pipe"] },
+      );
+    }
+    console.log("  rebuilt the review for the moved branches");
+  }
+
+  /** where a conflict is written for restack.ts to pick up */
+  conflictFile(): string {
+    return join(dirname(this.html), "restack-conflict.json");
+  }
+
+  /**
+   * a replay that conflicted: nothing moved. It is written down for
+   * restack.ts, and put to the agent as a note on the first file that
+   * conflicted, in the review of the PR it happened in - the agent watching
+   * the notes offers to resolve it
+   */
+  #conflicted(conflict: Conflict, doing: string): string {
+    writeFileSync(this.conflictFile(), JSON.stringify({ ...conflict, doing }, null, 2), "utf8");
+    const said =
+      `${doing} stopped on a conflict, and nothing moved: replaying ${conflict.commit.slice(0, 9)} ` +
+      `"${conflict.subject}" (on ${conflict.branch}) onto ${conflict.onto.slice(0, 9)} conflicts in ` +
+      `${conflict.files.join(", ")}. Could you resolve it? ` +
+      `\`node ${join(dirname(fileURLToPath(import.meta.url)), "restack.ts")} resolve --html ${this.html} --repo ${this.repo}\` ` +
+      "sets it up in a scratch worktree with the conflict marked; `restack.ts resolved` records the fix, " +
+      `and then ${doing === "restacking" ? "Rebase upstack" : "committing the held edits"} can be pressed again.`;
+    const review = this.#reviews.find((candidate) => candidate.head === conflict.branch && candidate.reviewId !== undefined);
+    const store = this.stores().find((candidate) => candidate.id === review?.reviewId) ?? this.stores()[0];
+    const [file = ""] = conflict.files;
+    if (store !== undefined) {
+      const notes = store.readNotes();
+      notes[file] = [...(notes[file] ?? []), { line: 0, messages: [{ from: "reviewer", text: said }] }];
+      store.writeNotes(notes);
+    }
+    console.log(`  ${said}`);
+    return said;
+  }
+
+  /** the PR's held edits, made a commit - a new one, or amended into the one
+      they were made against - and the branch moved, its later commits
+      replayed on top. The PRs above are left for a restack */
+  commitHeld(branch: string, how: { mode: "new"; message: string } | { mode: "amend" }): { conflict?: string } {
+    if (this.#midOperation()) {
+      throw new EditRefused("git is part-way through a rebase or merge here - finish or abort it first");
+    }
+    this.#ofThisStack(branch);
+    const plan = planCommitHold(this.repo, branch, how);
+    if (plan.refused !== undefined) {
+      throw new EditRefused(plan.refused);
+    }
+    if (plan.conflict !== undefined) {
+      return { conflict: this.#conflicted(plan.conflict, "committing the held edits") };
+    }
+    const layers = this.layers();
+    const above = layers.indexOf(branch) < layers.length - 1;
+    applyPlan(this.repo, plan, commitHoldRefs(this.repo, branch, plan, above));
+    console.log(`  ${how.mode === "new" ? "committed" : "amended"} the held edits on ${branch}`);
+    this.#afterMove(plan.replaced);
+    return {};
+  }
+
+  discardHeld(branch: string): void {
+    this.#ofThisStack(branch);
+    discardHold(this.repo, branch);
+    console.log(`  discarded the held edits on ${branch} (backed up under refs/guided-review/backup/hold)`);
+  }
+
+  /** the PRs left on an older head of the one below, replayed onto it now */
+  restack(): { conflict?: string; moved: string[] } {
+    if (this.#midOperation()) {
+      throw new EditRefused("git is part-way through a rebase or merge here - finish or abort it first");
+    }
+    const layers = this.layers();
+    const plan = planRestack(this.repo, layers);
+    if (plan.refused !== undefined) {
+      throw new EditRefused(plan.refused);
+    }
+    if (plan.conflict !== undefined) {
+      return { conflict: this.#conflicted(plan.conflict, "restacking"), moved: [] };
+    }
+    applyPlan(this.repo, plan, restackRefs(this.repo, layers, plan));
+    console.log(`  restacked ${plan.moves.map((move) => move.branch).join(", ") || "nothing - already in step"}`);
+    this.#afterMove(plan.replaced);
+    return { moved: plan.moves.map((move) => move.branch) };
+  }
+
+  /** a branch the page asks about by name must be one of its own PRs -
+      nothing else is ever committed to, discarded or moved */
+  #ofThisStack(branch: string): void {
+    if (!this.layers().includes(branch)) {
+      throw new EditRefused(`${branch} is not a PR of this page`);
+    }
+  }
+
+  stale(): string[] {
+    return staleAbove(this.repo, this.layers());
+  }
+
   page(): string {
     const { reviewId, reason } = this.editable();
+    const checkedOut = this.checkedOutBranch();
     const bootstrap = `<script>window.__reviewServer = ${JSON.stringify({
       token: this.token,
       editableReviewId: reviewId,
       ...(reason === undefined ? {} : { readOnlyReason: reason }),
+      ...(checkedOut === undefined ? {} : { checkedOut }),
     })};</script>`;
     const text = readFileSync(this.html, "utf8");
     if (!text.includes(marker)) {
@@ -1027,6 +1356,52 @@ const handlePost = (
     }
     return;
   }
+  // editing any PR: saves into its held edits, and what becomes of them
+  const refusedOr = (work: () => unknown): void => {
+    try {
+      respondJson(response, 200, work() ?? { ok: true });
+    } catch (error) {
+      const failed = error as Error & { refused?: boolean };
+      respondJson(response, failed.refused === true ? 409 : 500, { error: failed.message });
+    }
+  };
+  if (path === "/held/save") {
+    refusedOr(() =>
+      reviewPage.saveHeld(store, body as { commit?: string; row?: string; path: string; content: string; sha: string }),
+    );
+    return;
+  }
+  if (path === "/held/sides") {
+    refusedOr(() => reviewPage.heldSides(String(body.branch ?? ""), (body.paths as string[]) ?? []));
+    return;
+  }
+  if (path === "/held/commit") {
+    refusedOr(() =>
+      reviewPage.commitHeld(
+        String(body.branch ?? ""),
+        body.mode === "amend" ? { mode: "amend" } : { mode: "new", message: String(body.message ?? "") },
+      ),
+    );
+    return;
+  }
+  if (path === "/held/discard") {
+    refusedOr(() => reviewPage.discardHeld(String(body.branch ?? "")));
+    return;
+  }
+  if (path === "/restack") {
+    refusedOr(() => reviewPage.restack());
+    return;
+  }
+  if (path === "/switch") {
+    try {
+      reviewPage.switchTo(String(body.branch ?? ""));
+      console.log(`  checked out ${String(body.branch)}`);
+      respondJson(response, 200, { checkedOut: reviewPage.checkedOutBranch() ?? null });
+    } catch (error) {
+      respondJson(response, 409, { error: (error as Error).message });
+    }
+    return;
+  }
   if (path === "/notes") {
     store.writeNotes(body as Notes);
     respondJson(response, 200, { ok: true });
@@ -1066,6 +1441,9 @@ const handlePost = (
       scope: reviewPage.scopeNow(store, editable) ?? null,
       // the commit bar's stops: the branch's commits, staged, working
       stops: reviewPage.stops(store, editable) ?? null,
+      // every PR's held edits, and the PRs a commit or amend left behind
+      holds: reviewPage.holds(),
+      stale: reviewPage.stale(),
     });
     return;
   }

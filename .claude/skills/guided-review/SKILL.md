@@ -49,6 +49,8 @@ in the middle:
 | `awaitNotes.ts` | tells you each reviewer note as it's written - streaming, or `--once` per note, however your host can best be woken (see "Keeping the notes channel open") - so you act on it while they are still reading |
 | `ackNote.ts` | confirms you've seen a note, before you have an answer for it - turns "sent, waiting for an agent" into "the agent is on it" honestly |
 | `reply.ts` | answers a note in its own thread — what you did, or the one question you need answered |
+| `stackEdit.ts` | held edits, committing or amending them, and restacking the PRs above - git plumbing only, no checkout |
+| `restack.ts` | for an agent asked to resolve a conflict the page hit: `status`, `resolve` (sets it up in a scratch worktree), `resolved` (records the fix) |
 
 Read the scripts' own `--help`/header comments rather than re-deriving what
 they do. Don't hand-assemble HTML or paste diff text; if the page needs a
@@ -304,16 +306,20 @@ layer with no PR is plain text rather than a link to a page that doesn't
 exist. `fixtures/localStack.sh <new dir>` builds a three-layer local stack to
 try it on.
 
-**One review per page is editable**: the one whose head branch the served
-`--repo` checkout actually has on disk - including when the page carries only
-that one review. A commit or working-tree review names no branch and reviews
-the checkout itself, so it is always the editable one; a PR review served from
-a checkout of some other branch is read-only, because the files there are not
-the files it is about (`serve.ts` matches and tells the page). The
-others' Monaco editors are read-only, but their notes, replies and ticks work
-in full — each review has its own `notes.json`/`ticks.json` under its own id,
-so `awaitNotes.ts`/`reply.ts` point at whichever review's store the note
-belongs to.
+**Every PR of a served page is editable; one of them saves to disk.** The
+review whose head branch the served `--repo` checkout has on disk (a commit or
+working-tree review names no branch, so it is that by definition) saves its
+whole-PR rows, and its uncommitted/working stops, to the files on disk, as
+always. Every other row of every PR - another branch's, or any commit's -
+saves into that PR's **held edits** (see "Editing any PR" under step 9): kept
+by the server as a ref, committed or amended from the commit bar when the
+reader says so. Staged changes, and the every-PR review read whole, stay
+read-only. Notes, replies and ticks work in every review — each has its own
+`notes.json`/`ticks.json` under its own id, so `awaitNotes.ts`/`reply.ts`
+point at whichever review's store the note belongs to. Beside each PR of a
+served stack the bar says which is **checked out**, or offers **switch to**,
+which runs `gh stack checkout <branch>` in the served checkout and reloads
+(git's refusal, uncommitted changes in the way say, comes back as a toast).
 
 ## 2. Get the exact file list and status
 
@@ -612,11 +618,12 @@ heading and the commits sit under them.
 **A tick is against a file of a commit**, not just a file. Reading every
 commit at once, ticking a file marks it in every commit it appears in (and in
 the every-PR review, across the PRs too), so the reading order still empties
-as you go; reading one commit, the tick is that commit's alone. Per-commit
-rows are read-only - a commit's diff is history, and nothing on disk is that
-file as that commit had it - so saving back is only ever for a review of the
-working state. Notes stay keyed by file and line, and are shared by every
-commit that touches the file.
+as you go; reading one commit, the tick is that commit's alone. A commit's
+rows don't save to disk - nothing on disk is that file as that commit had it -
+but they are editable: an edit is held against that commit, to be committed
+or amended into it from the commit bar (see "Editing any PR"), and a tick
+follows its commit when that remakes it. Notes stay keyed by file and line,
+and are shared by every commit that touches the file.
 
 `fixtures/commitStack.sh <new dir>` builds a two-PR stack of five commits to
 try it on.
@@ -757,7 +764,8 @@ others degrade safely to read-only-with-notes.
   from the server (`/stop-sides`) the first time it is read, and again
   whenever its files change. Working rows are editable and save to disk.
   Staged rows are read-only and say where to edit instead. A commit's rows
-  are history. A reload on a stop comes back to it. A review authored
+  hold their edits against it (see "Editing any PR"). A reload on a stop
+  comes back to it. A review authored
   commit by commit keeps its own bar instead.
 - **Read, then changed:** a ticked file whose diff changes (an edit on disk,
   a rebase) is unticked and unfolded, with "Changed since read" until it is
@@ -767,8 +775,9 @@ others degrade safely to read-only-with-notes.
   after side and counts live, but moved-code boxes and images wait for the
   next rebuild, which only a commit or a rebase triggers. A commit review,
   or a per-commit review, is history: its commit list and rows are fixed.
-- **When an editor is read-only:** the hint under it says why, e.g. "the
-  checkout is on `main` at `12caf54`, not `feature`".
+- **What an editor saves into:** the hint under it says - the disk, the PR's
+  held edits ("edits are held against this commit…"), or why it is read-only
+  (staged changes, the every-PR review read whole).
 
 It prints a `http://127.0.0.1:<port>/` — hand that over as the review. Run it
 in the background so the session isn't blocked, and say which port it's on.
@@ -909,6 +918,27 @@ Notes reach you three ways:
 
 If a note is ambiguous, ask about that one note rather than stopping the
 review; the page keeps working while you talk.
+
+### A conflict the page hit: offer to resolve it
+
+Committing held edits replays the PR's later commits, and **Rebase upstack**
+replays the PRs above. When a replay conflicts, nothing moves and the page puts
+it to you as a note, on the first conflicting file, in the review of the PR it
+happened in: which commit, onto what, in which files. Offer to resolve it in
+your reply, and when the reader agrees (or asked you to just handle such
+things):
+
+```bash
+node .claude/skills/guided-review/restack.ts resolve  --html <review.html> --repo <dir> --dir <scratch>
+# fix the conflict markers in the files it lists, in <scratch> - each side is labelled
+node .claude/skills/guided-review/restack.ts resolved --html <review.html> --repo <dir> --dir <scratch>
+```
+
+`resolved` records your fix for exactly that commit onto exactly that parent
+(a ref, so it lasts) and removes the worktree; it touches no branch. Tell the
+reader in the thread, and that pressing the same button again will now go
+through. `restack.ts status` says what is held, what is stale and what the last
+conflict was.
 
 ### Keeping the notes channel open
 
@@ -1317,6 +1347,55 @@ diffs stay in `ui-monospace`.
   the second PR of a stack of three, reviewed or not, everywhere on the page.
   `fixtures/commitStack.sh` edits `src/parse/block.ts` in both of its PRs to
   try this on.
+- **Editing any PR: held edits.** A save from any row the checkout's disk
+  doesn't back - another PR's, or any commit's - goes into that PR's **held
+  edits**: a commit kept as `refs/guided-review/hold/<branch>`, whose parent is
+  the commit the row reads (the PR's last commit, for a row read whole). Each
+  save amends it (`stackEdit.ts`, all plumbing - a scratch index,
+  `commit-tree`, `update-ref` with the old value, so two racing saves fail one
+  rather than lose it). They show as a **held** stop on the commit bar, right
+  after the commit they were made against, with a row per file diffing that
+  commit against them; the row they were made from shows the held content
+  too, so editing on from there edits what is held (`heldSync.ts`). One place
+  per PR: editing another of its commits is refused, saying where the edits
+  are held. Editing back to what the commit has lets the hold go. Under the
+  commit bar, the **held bar** offers **New commit** (a message, then a commit
+  inserted after that one), **Amend into** that commit, and **Discard** (kept
+  as a backup ref). The stack bar marks a PR with held edits.
+- **Committing or amending moves the PR at once; the PRs above wait.** The
+  PR's later commits are replayed onto the new one in memory (`merge-tree
+  --write-tree`), and only if all of them replay cleanly does anything move -
+  in one ref transaction, the old head backed up as
+  `refs/guided-review/backup/<branch>/<time>`. A branch checked out in the
+  served checkout takes its working tree along (`read-tree -m -u`, keeping
+  uncommitted changes, refusing where they'd be overwritten); one checked out
+  in any other worktree just has its ref moved. Replayed commits keep their
+  author, message and dates, so the same replay always makes the same commits
+  (and a recorded resolution is found again). The PRs above are left on the old
+  head, noted as `refs/guided-review/restack-from/<branch>`, and the stack bar
+  offers **Rebase N upstack**, which replays them all onto the moved PR the
+  same way - all or nothing. This is not `gh stack rebase`: that can't replace
+  a commit in the middle of a branch, and needs a checkout to stop in. A
+  conflict moves nothing and becomes a note to the agent (see "A conflict the
+  page hit"). After a move the server remaps every review's ticks and the
+  authored groups' commit refs to the new commits, rebuilds the page from its
+  recipe (a stack page has one too, `kind: "stack"`; a per-commit or stacked
+  review's recipe has `follow: false`, so it is rebuilt only then, never on its
+  own) and the page reloads.
+- **Monaco's diff gutter menu is off** (`renderGutterMenu: false`): it lays
+  its items out from the last diff, so a file cut shorter - Revert, held
+  content arriving - asked it for lines that no longer exist and it threw
+  "Illegal value for lineNumber". Revert is an ordinary edit, so it can be
+  undone.
+- **The fs tree is a tree widget** (Headless Tree, `@headless-tree/core` and
+  `/react`): one tab stop; arrows move, left/right fold and unfold, Home/End,
+  Enter goes to the file; click, ctrl/cmd-click, shift-click, shift-arrows and
+  ctrl-A select; Space ticks everything selected (or unticks it, all ticked
+  already), and ticking a selected item's box ticks the selection. A directory
+  a shift-range only passes through doesn't pull in its other files. The
+  library owns focus and selection; the rows are the page's own. Ticking moves
+  a row to the top of its directory, which drops its focus, so a tick from the
+  tree puts the focus back, and the page's own Space leaves a tree alone.
 - **A renamed file is diffed against its old path.** `build.ts` asks git
   for the scope's renames (`--name-status -M`) and reads a renamed file's
   before side, and its line counts, from the path it had then. Its row header

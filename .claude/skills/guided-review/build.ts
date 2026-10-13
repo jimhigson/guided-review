@@ -134,9 +134,10 @@ const parseOptions = (): Options => {
 };
 
 /**
- * build.ts's own arguments to run it again for this review - only where a
- * served page follows its branch (a PR, or a working tree) and is one
- * review, not a stack or a commit-by-commit reading
+ * build.ts's own arguments to run it again for this review - a PR or a
+ * working tree. One review that isn't read commit by commit follows its
+ * branch, rebuilt whenever it moves; a stack layer or a commit-by-commit
+ * reading is rebuilt only when the page itself moves its branches
  */
 const recipeFor = (
   repo: string,
@@ -145,11 +146,7 @@ const recipeFor = (
   authored: AuthoredGroups,
   leftOut: string[],
 ): RebuildRecipe | undefined => {
-  if (
-    (options.mode !== "pr" && options.mode !== "worktree") ||
-    options.stack !== undefined ||
-    (authored.commits ?? []).length > 0
-  ) {
+  if (options.mode !== "pr" && options.mode !== "worktree") {
     return undefined;
   }
   const flag = (name: string, value: string | undefined): string[] =>
@@ -165,9 +162,11 @@ const recipeFor = (
       ...flag("repo", resolve(repo)),
       ...flag("max-side-lines", String(options.maxSideLines)),
       ...flag("max-images", String(options.maxImages)),
+      ...flag("stack", options.stack === undefined ? undefined : resolve(options.stack)),
     ],
     authored,
     leftOut,
+    follow: options.stack === undefined && (authored.commits ?? []).length === 0,
   };
 };
 

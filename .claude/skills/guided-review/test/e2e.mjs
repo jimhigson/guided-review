@@ -317,7 +317,7 @@ const scenarioA = async () => {
   await other.locator('.row[data-path="a.ts"] .diff-toggle').click().catch(() => {});
   await sleep(1500);
   const hint = await other.locator(".editor-bar .hint").first().innerText().catch(() => "");
-  check(S, "on another branch the editors say why they're read-only", hint.includes("the checkout is on main"), hint);
+  check(S, "on another branch the editors hold their edits, rather than save to disk", hint.includes("edits are held on top of this PR"), hint);
   await other.close();
   sh("git checkout -q feature && git stash pop -q", repo);
 
@@ -471,13 +471,13 @@ const scenarioF = async () => {
       },
       "--mode pr --base main --head HEAD",
     );
-    check(S, "per-commit review carries no rebuild recipe", !readFileSync(html, "utf8").includes('id="recipe"'));
+    check(S, "a per-commit review is rebuilt only when the page moves its branch", /"follow":false/.test(readFileSync(html, "utf8").match(/id="recipe">([^<]*)/)?.[1] ?? ""));
     const server = await serve(repo, html);
     const { page, errors } = await open(server.port);
     await page.locator(".row .diff-toggle").first().click();
     await sleep(2500);
     const hint = await page.locator(".editor-bar .hint").first().innerText().catch(() => "");
-    check(S, "a commit's diff says it is history", hint.includes("as that commit had it"), hint);
+    check(S, "a commit's diff says its edits are held against it", hint.includes("edits are held against this commit"), hint);
     const commitRefs = await page.locator(".diff-refs").first().innerText().catch(() => "");
     check(S, "a commit's diff names its parent and itself", /^diff main \(\w{7}\) → feature~1 \(\w{7}\)$/.test(commitRefs.trim()), commitRefs);
     sh("printf 'x\\n' > z.txt && git add z.txt && git commit -qm later", repo);
@@ -528,7 +528,7 @@ const scenarioF = async () => {
       { meta: { title: "stack layer" }, groups: [{ title: "x", items: files.map(([status, path]) => ({ path, status: status.charAt(0) })) }] },
       `--mode pr --base auth --head api --stack ${stackJson}`,
     );
-    check(S, "stack layer carries no rebuild recipe", !readFileSync(html, "utf8").includes('id="recipe"'));
+    check(S, "a stack layer doesn't rebuild when its branch moves", /"follow":false/.test(readFileSync(html, "utf8").match(/id="recipe">([^<]*)/)?.[1] ?? ""));
     const server = await serve(repo, html);
     const { page, errors } = await open(server.port);
     const layers = await page.locator(".stack-bar .stack-step").count();
@@ -621,7 +621,7 @@ const scenarioG = async () => {
   const commit = await diffOf("a.ts", sh("git rev-parse HEAD", repo).trim());
   check(S, "the commit is its parent → itself", commit.before?.includes("a = 1;") && commit.after?.includes("a = 10;"), `${commit.before?.split("\n")[0]} → ${commit.after?.split("\n")[0]}`);
   check(S, "the commit names its sides", /^diff main \(\w{7}\) → feature \(\w{7}\)$/.test(commit.refs), commit.refs);
-  check(S, "the commit is history", commit.hint.includes("as that commit had it"), commit.hint);
+  check(S, "an edit to the commit is held against it, not saved to disk", commit.hint.includes("edits are held against this commit"), commit.hint);
 
   await openStop("staged");
   sh("git add b.ts", repo);
@@ -1156,7 +1156,362 @@ const scenarioM = async () => {
   server.stop();
 };
 
-const scenarios = { M: scenarioM, L: scenarioL, K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
+/* ---- N: switching the checkout to another PR of the stack ------------------ */
+const scenarioN = async () => {
+  const S = "N";
+  const repo = join(ROOT, "repo-n");
+  rmSync(repo, { recursive: true, force: true });
+  sh(`${SKILL}/fixtures/localStack.sh ${repo}`, ROOT);
+  sh("git checkout -q api", repo);
+  const stackJson = join(ROOT, "n-stack.json");
+  writeFileSync(stackJson, sh(`node ${SKILL}/resolveStack.ts --stack`, repo));
+  const files = sh(`${SKILL}/changedFiles.sh pr auth api`, repo)
+    .trim()
+    .split("\n")
+    .map((line) => line.split("\t"));
+  const { html } = build(
+    repo,
+    "n",
+    { meta: { title: "api" }, groups: [{ title: "x", items: files.map(([status, path]) => ({ path, status: status.charAt(0) })) }] },
+    `--mode pr --base auth --head api --stack ${stackJson} --id n-${Date.now()}`,
+  );
+  const server = await serve(repo, html);
+  const { page, errors } = await open(server.port);
+  const branch = () => sh("git rev-parse --abbrev-ref HEAD", repo).trim();
+  const step = (name) => page.locator(".stack-step", { has: page.locator(".stack-number", { hasText: new RegExp(`^${name}$`) }) });
+
+  check(S, "the checked-out PR says so", (await step("api").locator(".stack-checked-out").count()) === 1);
+  check(S, "every other PR offers to switch to it", (await step("auth").locator(".stack-switch").count()) === 1 && (await step("ui").locator(".stack-switch").count()) === 1);
+
+  await step("ui").locator(".stack-switch").click();
+  const switched = await until(() => branch() === "ui");
+  check(S, "switch to checks the PR's branch out", switched !== undefined, branch());
+  await page.waitForSelector(".stack-checked-out");
+  await sleep(500);
+  check(S, "...and the page says it is checked out now", (await step("ui").locator(".stack-checked-out").count()) === 1 && (await step("api").locator(".stack-switch").count()) === 1);
+
+  // gh stack refusing - a change in the way - says why, and moves nothing
+  writeFileSync(join(repo, "src/api/routes.ts"), "// in the way\n");
+  await step("auth").locator(".stack-switch").click();
+  const said = await until(async () => (await toasts(page)).find((text) => text.includes("couldn't switch to auth")));
+  check(S, "a switch git refuses says so", said !== undefined, JSON.stringify(await toasts(page)));
+  check(S, "...and leaves the checkout where it was", branch() === "ui", branch());
+  sh("git checkout -q -- .", repo);
+  // the refused switch's 409 is the browser logging the answer it was given
+  const unexpected = errors.filter((error) => !error.includes("status of 409"));
+  check(S, "no page errors", unexpected.length === 0, unexpected.slice(0, 3).join(" | "));
+  await page.close();
+  server.stop();
+};
+
+/* ---- O: editing any PR - held edits, commit or amend, rebase upstack ------- */
+const scenarioO = async () => {
+  const S = "O";
+  const repo = fresh("repo-o");
+  gitInit(repo);
+  const git = (cmd) => sh(`git ${cmd}`, repo).trim();
+  const commit = (files, message) => {
+    write(repo, files);
+    sh(`git add -A && git commit -qm '${message}'`, repo);
+    return git("rev-parse HEAD");
+  };
+  const lines = (prefix, count, extra = {}) =>
+    Array.from({ length: count }, (_, index) => extra[index + 1] ?? `${prefix}${index + 1}`).join("\n") + "\n";
+  commit({ "README.md": "o\n" }, "trunk");
+  sh("git checkout -qb one", repo);
+  const one1 = commit({ "a.ts": lines("a", 9) }, "one: add a");
+  const one2 = commit({ "b.ts": lines("b", 9) }, "one: add b");
+  const one3 = commit({ "b.ts": lines("b", 9, { 9: "b9 changed" }) }, "one: change the end of b");
+  sh("git checkout -qb two", repo);
+  commit({ "c.ts": lines("c", 9) }, "two: add c");
+  commit({ "b.ts": lines("b", 9, { 5: "b5 by two", 9: "b9 changed" }) }, "two: change the middle of b");
+  sh("git checkout -qb three", repo);
+  commit({ "d.ts": lines("d", 9) }, "three: add d");
+  sh("git checkout -q main", repo);
+
+  const dir = fresh("stack-o");
+  const entry = (key, base) => ({ key, label: key, title: key, url: "", base, head: key });
+  writeFileSync(join(dir, "stack.json"), JSON.stringify({ current: "one", entries: [entry("one", "main"), entry("two", "one"), entry("three", "two")] }));
+  const item = (path, status) => ({ path, status, note: `${path} here` });
+  writeFileSync(
+    join(dir, "one.groups.json"),
+    JSON.stringify({
+      meta: { title: "one" },
+      commits: [
+        { ref: one1, groups: [{ title: "a", items: [item("a.ts", "A")] }] },
+        { ref: one2, groups: [{ title: "b", items: [item("b.ts", "A")] }] },
+        { ref: one3, groups: [{ title: "b end", items: [item("b.ts", "M")] }] },
+      ],
+    }),
+  );
+  writeFileSync(join(dir, "two.groups.json"), JSON.stringify({ meta: { title: "two" }, groups: [{ title: "two", items: [item("c.ts", "A"), item("b.ts", "M")] }] }));
+  writeFileSync(join(dir, "three.groups.json"), JSON.stringify({ meta: { title: "three" }, groups: [{ title: "three", items: [item("d.ts", "A")] }] }));
+  const html = join(ROOT, "o.html");
+  sh(`node ${SKILL}/buildStack.ts --dir ${dir} --out ${html} --repo .`, repo);
+  const server = await serve(repo, html);
+  const { page, errors } = await open(server.port);
+  page.on("dialog", (dialog) => void dialog.accept());
+  const base = `http://127.0.0.1:${server.port}/`;
+  const go = async (review, commitSha) => {
+    await page.goto(`${base}?review=${review}${commitSha === undefined ? "" : `&commit=${commitSha}`}`);
+    await page.waitForSelector(".row", { state: "attached" });
+    await sleep(1500);
+  };
+  const held = (branch) => sh(`git for-each-ref --format='%(objectname)' refs/guided-review/hold/${branch}`, repo).trim();
+  const bar = async () => (await page.locator(".commit-bar .commit-step").allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
+  /** types into a row's editor - at its start, its end, or the end of a line -
+      placing the cursor through monaco, the same on every platform */
+  const edit = async (key, text, { at = "end" } = {}) => {
+    const path = key.slice(key.lastIndexOf(":") + 1);
+    const row = page.locator(`.row[data-path="${path}"]`).first();
+    const toggle = row.locator(".diff-toggle");
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    await until(() => model(page, "modified", key));
+    await page.evaluate(
+      ([key, at]) => {
+        const editor = window.monaco.editor
+          .getEditors()
+          .find((candidate) => decodeURIComponent(candidate.getModel()?.uri.toString() ?? "") === `inmemory://review/modified/${key}`);
+        const content = editor.getModel();
+        const line = at === "start" ? 1 : at === "end" ? content.getLineCount() : at;
+        editor.setPosition({ lineNumber: line, column: at === "start" ? 1 : content.getLineMaxColumn(line) });
+        editor.focus();
+      },
+      [key, at],
+    );
+    await page.keyboard.type(text);
+    await sleep(1800);
+  };
+  /** a button that reloads the page once the server has moved the branches
+      and rebuilt it */
+  const press = async (locator) => {
+    // a load, not any navigation: the page's own replaceState of ?file= counts
+    // as one, and would let the wait end before the reload has happened
+    try {
+      await Promise.all([page.waitForEvent("load", { timeout: 60_000 }), locator.click()]);
+    } catch (error) {
+      throw new Error(`no reload: ${JSON.stringify(await toasts(page))} | server: ${server.log().split("\n").slice(-8).join(" / ")}`, { cause: error });
+    }
+    await page.waitForSelector(".row", { state: "attached" });
+    await sleep(1500);
+  };
+  const lastToast = async () => (await toasts(page)).at(-1) ?? "";
+
+  // ---- held: a commit's edit is held, not committed
+  await go("one", one2);
+  await edit(`${one2}:b.ts`, "// held in b\n", { at: "start" });
+  const heldOne = await until(() => held("one"));
+  check(S, "editing a commit holds the edit", heldOne !== undefined && git(`rev-parse ${heldOne}^`) === one2);
+  check(S, "...without moving the branch", git("rev-parse one") === one3);
+  await until(async () => (await bar()).includes("held"));
+  const order = await bar();
+  check(S, "the held edits sit on the commit bar right after that commit", order.indexOf("held") === order.findIndex((text) => text.startsWith(one2.slice(0, 7))) + 1, JSON.stringify(order));
+  check(S, "the stack bar marks the PR as holding edits", (await page.locator(".stack-step", { hasText: "one" }).locator(".stack-held").count()) === 1);
+  const heldBar = (await page.locator(".held-bar").innerText().catch(() => "")).replace(/\s+/g, " ");
+  check(S, "the held bar says what is held, and after which commit", heldBar.includes("1 file edited") && heldBar.includes(one2.slice(0, 7)), heldBar);
+
+  await page.locator(".commit-bar .commit-step", { hasText: "held" }).click();
+  await sleep(1500);
+  await openDiff(page, "b.ts");
+  const heldRow = await model(page, "modified", `held:one:b.ts`);
+  check(S, "the held edits have a row of their own", heldRow?.startsWith("// held in b") === true, JSON.stringify(heldRow?.slice(0, 20)));
+
+  await go("one", one2);
+  await openDiff(page, "b.ts");
+  const afterReload = await until(async () => (await model(page, "modified", `${one2}:b.ts`))?.startsWith("// held in b"));
+  check(S, "after a reload, the commit's row shows what is held", afterReload === true);
+
+  await go("one", one3);
+  await edit(`${one3}:b.ts`, "// elsewhere\n", { at: "start" });
+  const refusal = await until(async () => ((await lastToast()).includes("already held") ? await lastToast() : undefined));
+  check(S, "editing another commit of the PR is refused, saying why", refusal !== undefined, JSON.stringify(await toasts(page)));
+  check(S, "...and what is held is untouched", held("one") === heldOne);
+  await page.locator('.row[data-path="b.ts"] button.save.revert').first().click();
+
+  // ---- amend: into the commit, the later commit replayed, the branch moved
+  await go("one", one3);
+  await page.locator('.row[data-path="b.ts"] input.tick').first().check();
+  await sleep(500);
+  await press(page.locator(".held-action", { hasText: "Amend into" }));
+  const oneNow = git("rev-parse one");
+  check(S, "amending moves the branch", oneNow !== one3);
+  check(S, "...folding the edit into that commit, which keeps its message", git("show one~1:b.ts").startsWith("// held in b") && git("log -1 --format=%s one~1") === "one: add b");
+  check(S, "...with the later commit replayed on top", git("log -1 --format=%s one") === "one: change the end of b" && git("show one:b.ts").startsWith("// held in b") && git("show one:b.ts").includes("b9 changed"));
+  check(S, "...and nothing held any more", held("one") === "");
+  check(S, "the branch's old head is backed up", sh("git for-each-ref --format='%(objectname)' refs/guided-review/backup/one", repo).includes(one3));
+  const groupsNow = readFileSync(join(dir, "one.groups.json"), "utf8");
+  check(S, "the authored commits are renamed to what they became", !groupsNow.includes(one2) && groupsNow.includes(git("rev-parse one~1")));
+  check(S, "commits are never named after the page's own backup refs", !readFileSync(html, "utf8").includes('"name":"guided-review/'));
+  await go("one", git("rev-parse one"));
+  check(S, "a tick follows its commit through the amend", await page.locator('.row[data-path="b.ts"] input.tick').first().isChecked());
+  const restackLabel = await page.locator(".stack-restack").innerText().catch(() => "");
+  check(S, "the PRs above are offered a rebase upstack", restackLabel === "Rebase 2 upstack", restackLabel);
+
+  // ---- restack: every PR above, replayed
+  await press(page.locator(".stack-restack"));
+  const onTop = (lower, upper) => sh(`git merge-base --is-ancestor ${lower} ${upper} && echo yes || echo no`, repo).trim() === "yes";
+  check(S, "rebasing upstack puts each PR back on the one below", onTop("one", "two") && onTop("two", "three"));
+  check(S, "...carrying the edit and the PR's own change", git("show two:b.ts").startsWith("// held in b") && git("show two:b.ts").includes("b5 by two"));
+  check(S, "...and nothing is left to restack", (await page.locator(".stack-restack").count()) === 0);
+
+  // ---- a whole-PR edit, as a new commit
+  const twoTip = git("rev-parse two");
+  await go("two");
+  await edit("c.ts", "// more c\n");
+  const heldTwo = await until(() => held("two"));
+  check(S, "a whole-PR edit is held after the PR's last commit", heldTwo !== undefined && git(`rev-parse ${heldTwo}^`) === twoTip);
+  await page.locator("input.held-message").fill("two: more c");
+  await press(page.locator(".held-action", { hasText: "New commit" }));
+  check(S, "New commit adds a commit with that message after it", git("log -1 --format=%s two") === "two: more c" && git("rev-parse two^") === twoTip && git("show two:c.ts").endsWith("// more c\n".trimEnd()));
+  check(S, "...and the PR above needs restacking", (await page.locator(".stack-restack").innerText().catch(() => "")) === "Rebase 1 upstack");
+  await press(page.locator(".stack-restack"));
+  check(S, "...then sits on it again", onTop("two", "three"));
+
+  // ---- a one-commit PR, read whole, amended
+  await go("three");
+  await edit("d.ts", "// more d\n");
+  await until(() => held("three"));
+  await press(page.locator(".held-action", { hasText: "Amend into" }));
+  check(S, "a one-commit PR's edit amends that commit", git("rev-list --count two..three") === "1" && git("show three:d.ts").includes("// more d"));
+
+  // ---- a conflict: nothing moves, the agent is asked, and its fix goes through
+  // the line two changed, changed again lower down: line 6, under the comment
+  const oneMiddle = git("rev-parse one~1");
+  await go("one", oneMiddle);
+  await edit(`${oneMiddle}:b.ts`, " by one", { at: 6 });
+  await until(() => held("one"));
+  await sleep(1000);
+  await press(page.locator(".held-action", { hasText: "Amend into" }));
+  const twoBefore = git("rev-parse two");
+  await page.locator(".stack-restack").click();
+  const said = await until(async () => ((await lastToast()).includes("conflict") ? await lastToast() : undefined));
+  check(S, "a conflicting restack says so", said !== undefined, JSON.stringify(await toasts(page)));
+  check(S, "...and moves nothing", git("rev-parse two") === twoBefore);
+  const notes = JSON.parse(readFileSync(join(ROOT, sh(`ls ${ROOT} | grep -- '-pr-one-two-' | head -1`, ROOT).trim(), "notes.json"), "utf8"));
+  check(S, "...and asks the agent, in a note on the file", (notes["b.ts"] ?? []).some((note) => (note.messages ?? []).some((message) => message.text.includes("Could you resolve it"))), JSON.stringify(notes).slice(0, 200));
+  const resolveDir = join(ROOT, "o-resolve");
+  sh(`node ${SKILL}/restack.ts resolve --html ${html} --repo ${repo} --dir ${resolveDir}`, repo);
+  const marked = readFileSync(join(resolveDir, "b.ts"), "utf8");
+  check(S, "restack.ts sets the conflict up, marked", marked.includes("<<<<<<<") && marked.includes(">>>>>>>"));
+  writeFileSync(join(resolveDir, "b.ts"), marked.replace(/<<<<<<<[^\n]*\n([\s\S]*?)=======\n[\s\S]*?>>>>>>>[^\n]*\n/, "b5 by one and two\n"));
+  sh(`node ${SKILL}/restack.ts resolved --html ${html} --repo ${repo} --dir ${resolveDir}`, repo);
+  await press(page.locator(".stack-restack"));
+  check(S, "with the agent's resolution, the restack goes through", onTop("one", "two") && git("show two:b.ts").includes("b5 by one and two"));
+
+  // ---- the every-PR review: a commit edited there is held for its own PR
+  const allCommits = await page.evaluate(() => JSON.parse(document.getElementById("shell").textContent).reviews.map((review) => review.key));
+  check(S, "there is an every-PR review", allCommits.includes("all"));
+  const oneFirst = git("rev-parse one~2");
+  await go("all", oneFirst);
+  await edit(`${oneFirst}:a.ts`, "// from all\n");
+  const heldFromAll = await until(() => held("one"));
+  check(S, "a commit edited from the every-PR review is held for its own PR", heldFromAll !== undefined && git(`rev-parse ${heldFromAll}^`) === oneFirst);
+  await press(page.locator(".held-action", { hasText: "Discard" }));
+  check(S, "Discard lets the held edits go", held("one") === "");
+  check(S, "...keeping a backup", sh("git for-each-ref refs/guided-review/backup/hold/one", repo).trim() !== "");
+
+  // ---- the checked-out PR: whole-PR rows save to disk, commits are held, and
+  // the checkout follows an amend, keeping uncommitted changes
+  sh("git checkout -q one", repo);
+  writeFileSync(join(repo, "a.ts"), `${readFileSync(join(repo, "a.ts"), "utf8")}// uncommitted\n`);
+  await go("one");
+  const lastOfOne = git("rev-parse one");
+  const checkedMiddle = git("rev-parse one~1");
+  await go("one", checkedMiddle);
+  await edit(`${checkedMiddle}:b.ts`, "// checked out\n", { at: "start" });
+  await until(() => held("one"));
+  await press(page.locator(".held-action", { hasText: "Amend into" }));
+  check(S, "amending the checked-out PR moves its checkout too", git("rev-parse HEAD") === git("rev-parse one") && git("rev-parse one") !== lastOfOne && readFileSync(join(repo, "b.ts"), "utf8").startsWith("// checked out"));
+  check(S, "...keeping its uncommitted changes", readFileSync(join(repo, "a.ts"), "utf8").endsWith("// uncommitted\n"));
+  check(S, "...with nothing else showing as changed", sh("git status --porcelain", repo).trim() === "M a.ts", sh("git status --porcelain", repo));
+
+  const unexpected = errors.filter((error) => !error.includes("status of 409"));
+  check(S, "no page errors", unexpected.length === 0, unexpected.slice(0, 3).join(" | "));
+  await page.close();
+  server.stop();
+};
+
+/* ---- P: held edits in one served PR - its commit bar, disk and history ------ */
+const scenarioP = async () => {
+  const S = "P";
+  const repo = fresh("repo-p");
+  gitInit(repo);
+  const git = (cmd) => sh(`git ${cmd}`, repo).trim();
+  const nine = (prefix, change = {}) => Array.from({ length: 9 }, (_, index) => change[index + 1] ?? `${prefix}${index + 1}`).join("\n") + "\n";
+  write(repo, { "x.ts": nine("x"), "y.ts": nine("y") });
+  sh("git add -A && git commit -qm base && git checkout -qb feature", repo);
+  write(repo, { "x.ts": nine("x", { 2: "x2 first" }) });
+  sh("git commit -qam 'first'", repo);
+  const first = git("rev-parse HEAD");
+  write(repo, { "x.ts": nine("x", { 2: "x2 first", 8: "x8 second" }), "y.ts": nine("y", { 5: "y5 second" }) });
+  sh("git commit -qam 'second'", repo);
+  const { html } = build(
+    repo,
+    "p",
+    { meta: { title: "P" }, groups: [{ title: "Both", items: [{ path: "x.ts", status: "M" }, { path: "y.ts", status: "M" }] }] },
+    `--mode pr --base main --head HEAD --id p-${Date.now()}`,
+  );
+  const server = await serve(repo, html);
+  const { page, errors } = await open(server.port);
+  page.on("dialog", (dialog) => void dialog.accept());
+  const held = () => sh("git for-each-ref --format='%(objectname)' refs/guided-review/hold/feature", repo).trim();
+  const typeInto = async (key, text, line) => {
+    const path = key.slice(key.lastIndexOf(":") + 1);
+    const toggle = page.locator(`.row[data-path="${path}"] .diff-toggle`).first();
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    await until(() => model(page, "modified", key));
+    await page.evaluate(
+      ([key, line]) => {
+        const editor = window.monaco.editor.getEditors().find((candidate) => decodeURIComponent(candidate.getModel()?.uri.toString() ?? "") === `inmemory://review/modified/${key}`);
+        editor.setPosition({ lineNumber: line, column: editor.getModel().getLineMaxColumn(line) });
+        editor.focus();
+      },
+      [key, line],
+    );
+    await page.keyboard.type(text);
+    await sleep(1800);
+  };
+
+  // the checkout's own PR, read whole: still the disk
+  await typeInto("y.ts", " on disk", 1);
+  check(S, "the checked-out PR read whole still saves to disk", readFileSync(join(repo, "y.ts"), "utf8").startsWith("y1 on disk") && held() === "");
+  sh("git checkout -q -- y.ts", repo);
+  await sleep(2500);
+
+  // one of its commits, on the commit bar: held
+  await until(async () => (await page.locator(".commit-bar .commit-step").count()) >= 3);
+  await page.locator(".commit-bar .commit-step", { hasText: first.slice(0, 7) }).click();
+  await sleep(2000);
+  await typeInto(`${first}:x.ts`, " held", 4);
+  check(S, "a commit of the bar holds its edit", (await until(() => held())) !== undefined && git(`rev-parse ${held()}^`) === first);
+  check(S, "...leaving the disk alone", !readFileSync(join(repo, "x.ts"), "utf8").includes("held"));
+
+  // the branch moves on under the held edits
+  write(repo, { "y.ts": nine("y", { 5: "y5 second", 9: "y9 third" }) });
+  sh("git commit -qam 'third'", repo);
+  await sleep(3500);
+  await page.reload();
+  await page.waitForSelector(".row", { state: "attached" });
+  await sleep(2500);
+  const heldBar = (await page.locator(".held-bar").innerText().catch(() => "")).replace(/\s+/g, " ");
+  check(S, "held edits outlast the branch moving on", heldBar.includes(first.slice(0, 7)), heldBar);
+  await page.locator("input.held-message").fill("between first and second");
+  await Promise.all([page.waitForEvent("load", { timeout: 60_000 }), page.locator(".held-action", { hasText: "New commit" }).click()]);
+  await page.waitForSelector(".row", { state: "attached" });
+  await sleep(2000);
+  check(S, "New commit goes in right after the commit the edits were held against", git("log --format=%s main..feature") === "third\nsecond\nbetween first and second\nfirst", git("log --format=%s main..feature"));
+  check(S, "...with every later commit replayed, the newest included", git("show feature:x.ts").includes("x4 held") && git("show feature:x.ts").includes("x8 second") && git("show feature:y.ts").includes("y9 third"));
+  check(S, "...and the checkout with it", readFileSync(join(repo, "x.ts"), "utf8").includes("x4 held") && sh("git status --porcelain", repo).trim() === "");
+  const steps = (await page.locator(".commit-bar .commit-step").allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
+  check(S, "the page is rebuilt: its commit bar has the new commit", steps.some((text) => text.includes("between first and second")), JSON.stringify(steps));
+  check(S, "nothing is left to restack in a PR alone", (await page.locator(".stack-restack").count()) === 0);
+  const unexpected = errors.filter((error) => !error.includes("status of 409"));
+  check(S, "no page errors", unexpected.length === 0, unexpected.slice(0, 3).join(" | "));
+  await page.close();
+  server.stop();
+};
+
+const scenarios = { P: scenarioP, O: scenarioO, N: scenarioN, M: scenarioM, L: scenarioL, K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
 try {
   browser = await chromium.launch();
 } catch (error) {

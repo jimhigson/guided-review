@@ -30,8 +30,8 @@
  * for a stack that hasn't been pushed anywhere.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import { buildPage } from "./buildPage.ts";
@@ -52,6 +52,7 @@ import {
   stackTrunkRef,
 } from "./reviewAssembly.ts";
 import {
+  type RebuildRecipe,
   type ReviewGroup,
   type ReviewItem,
   type ReviewShell,
@@ -374,8 +375,31 @@ const main = async (): Promise<void> => {
   );
   const shell: ReviewShell = { reviews, current, edits };
   const { script, css } = await buildPage();
-  const html = page(shell, reviewBlocks, script, finishCss(css));
-  writeFileSync(outPath, html, "utf8");
+  // how to build this page again - for the server, once the page itself has
+  // moved the stack's branches (committing held edits, restacking). Never on
+  // its own: the authored groups name commits, and only the page knows what
+  // each became
+  const recipe: RebuildRecipe = {
+    kind: "stack",
+    args: [
+      "--dir",
+      resolve(stackDir),
+      "--repo",
+      resolve(repo),
+      "--max-side-lines",
+      String(values["max-side-lines"]),
+      "--max-images",
+      String(values["max-images"]),
+    ],
+    authored: null,
+    leftOut: [],
+    follow: false,
+  };
+  const html = page(shell, [...reviewBlocks, jsonBlock("recipe", recipe)], script, finishCss(css));
+  // whole or not at all: a served page is read while it is being rebuilt
+  const partial = `${outPath}.${process.pid}.partial`;
+  writeFileSync(partial, html, "utf8");
+  renameSync(partial, outPath);
 
   console.log(
     `stack   ${reviews.map((review) => (review.key === current ? `[${review.label}]` : review.block === undefined ? `(${review.label})` : review.label)).join(" → ")}   (parens = not yet reviewed)`,
