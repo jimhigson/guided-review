@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { awaitingReply, isAcked, messagesOf, noteAt, notesStore, sayOnNote } from "../notes.ts";
 import { offlineStore } from "../offline.ts";
 import { useStore } from "../stores.ts";
+import { Markdown } from "./Markdown.tsx";
 
 /** what has been typed but not sent, so a redraw mid-sentence loses nothing */
 const drafts = new Map<string, string>();
@@ -103,10 +104,14 @@ export const NoteZone = ({ path, line, done }: NoteZoneProps) => {
       {messages.length > 0 && (
         <div class="note-thread">
           {messages.map((message, index) => (
-            <p class={`note-message note-from-${message.from}`} key={index}>
+            <div class={`note-message note-from-${message.from}`} key={index}>
               <span class="note-who">{message.from === "agent" ? "agent" : "you"}</span>
-              {message.text}
-            </p>
+              {/* an agent writes markdown - code, lists, links - and it reads as
+                  that; what the reviewer typed is shown as typed */}
+              {message.from === "agent" ?
+                <Markdown text={message.text} />
+              : <span class="note-text">{message.text}</span>}
+            </div>
           ))}
           {awaitingReply(messages) &&
             (offline ?

@@ -11,7 +11,7 @@
 // Scenario E reviews a real, large branch (a clone of it, never the original):
 //   GR_E2E_BIG_REPO=<a checkout>  [GR_E2E_BIG_BRANCH=<branch>]  [GR_E2E_BIG_BASE=origin/main]
 // and is skipped without one.
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, execSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -1561,7 +1561,54 @@ const scenarioP = async () => {
   server.stop();
 };
 
-const scenarios = { P: scenarioP, O: scenarioO, N: scenarioN, M: scenarioM, L: scenarioL, K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
+/* ---- Q: an agent's replies are markdown -------------------------------------- */
+const scenarioQ = async () => {
+  const S = "Q";
+  const repo = fresh("repo-q");
+  gitInit(repo);
+  write(repo, { "q.ts": "const q = 1;\nconst r = 2;\n" });
+  sh("git add . && git commit -qm base && git checkout -qb feature", repo);
+  swap(repo, "q.ts", "q = 1", "q = 10");
+  sh("git commit -qam change", repo);
+  const id = `q-${Date.now()}`;
+  const { html } = build(repo, "q", { meta: { title: "Q" }, groups: [{ title: "Q", items: [{ path: "q.ts", status: "M" }] }] }, `--mode pr --base main --head HEAD --id ${id}`);
+  const notesFile = join(ROOT, id, "notes.json");
+  mkdirSync(join(ROOT, id), { recursive: true });
+  writeFileSync(notesFile, JSON.stringify({ "q.ts": [{ line: 1, messages: [{ from: "reviewer", text: "why *this* and **not** `that`?" }] }] }));
+  const reply = [
+    "Because **ten** is what `parse` expects:",
+    "",
+    "- it's the base",
+    "- it's [documented](https://example.com/docs)",
+    "",
+    "```",
+    "parse(q, 10)",
+    "```",
+    "",
+    "Not [this](javascript:alert(1)), and not <b>raw html</b>.",
+  ].join("\n");
+  execFileSync(process.execPath, [`${SKILL}/reply.ts`, "--notes", notesFile, "--path", "q.ts", "--line", "1", "--text", reply]);
+  const server = await serve(repo, html);
+  const { page, errors } = await open(server.port);
+  await openDiff(page, "q.ts");
+  await until(() => page.locator(".note-from-agent .md").count());
+  const agent = page.locator(".note-from-agent .md").first();
+  check(S, "an agent's bold is bold", (await agent.locator("strong").first().innerText().catch(() => "")) === "ten");
+  check(S, "...its code is code", (await agent.locator("code").first().innerText().catch(() => "")) === "parse");
+  check(S, "...its list is a list", (await agent.locator("li").count()) === 2);
+  check(S, "...and a fenced block is a block", (await agent.locator("pre").innerText().catch(() => "")).includes("parse(q, 10)"));
+  const link = agent.locator("a", { hasText: "documented" });
+  check(S, "an agent's link opens in a new tab", (await link.getAttribute("href")) === "https://example.com/docs" && (await link.getAttribute("target")) === "_blank");
+  check(S, "...but a javascript: one is no link at all", (await agent.locator('a[href^="javascript"]').count()) === 0 && (await agent.locator(".md-link-refused", { hasText: "this" }).count()) === 1);
+  check(S, "...and raw html shows as text, never as html", (await agent.locator("b").count()) === 0 && (await agent.innerText()).includes("<b>raw html</b>"));
+  const mine = await page.locator(".note-from-reviewer .note-text").first().innerText().catch(() => "");
+  check(S, "the reviewer's own note shows as typed", mine === "why *this* and **not** `that`?", mine);
+  check(S, "no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
+  await page.close();
+  server.stop();
+};
+
+const scenarios = { Q: scenarioQ, P: scenarioP, O: scenarioO, N: scenarioN, M: scenarioM, L: scenarioL, K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
 try {
   browser = await chromium.launch();
 } catch (error) {

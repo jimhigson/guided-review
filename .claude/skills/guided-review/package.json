@@ -14,7 +14,8 @@
     "@headless-tree/react": "1.7.0",
     "chokidar": "^5.0.0",
     "preact": "11.0.0-beta.1",
-    "react-resizable-panels": "^3.0.6"
+    "react-resizable-panels": "^3.0.6",
+    "snarkdown-in-react": "2.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

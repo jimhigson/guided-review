@@ -11,7 +11,8 @@
     // it gets, here and in the bundle, so its ReactNode is preact's children
     "paths": {
       "react": ["./node_modules/preact/compat"],
-      "react-dom": ["./node_modules/preact/compat"]
+      "react-dom": ["./node_modules/preact/compat"],
+      "snarkdown-in-react": ["./src/snarkdownInReact.d.ts"]
     },
     "strict": true,
     "noUncheckedIndexedAccess": true,

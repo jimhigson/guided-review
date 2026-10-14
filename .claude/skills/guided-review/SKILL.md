@@ -885,6 +885,11 @@ When a note arrives, one of two things happens:
     --text "moved to src/util/preact/useStableValue.ts, import sites updated"
   ```
 
+  `--text` is **markdown**: `code`, **bold**, lists, links, fenced blocks.
+  Use it where it helps - name the symbol in backticks, show the two-line
+  snippet in a fence - and keep it short; it reads inside the diff. Pass
+  multi-line text with `$'...'` or a heredoc.
+
   The page notices within a couple of seconds: the file's diff reloads from
   disk, its `+N −M` updates, a toast says what happened, and your message
   appears in the reviewer's own note box. Don't ask permission for something
@@ -1483,7 +1488,17 @@ diffs stay in `ui-monospace`.
 - A note is a **thread**, not a string: `{line, messages: [{from, text}]}`,
   with the original single-`text` shape read as its first message. The zone
   shows the conversation and a Reply box; the agent's side arrives through
-  `reply.ts`. Everything that reads notes must tolerate both shapes and a
+  `reply.ts`. **An agent's message is markdown**, rendered by
+  `snarkdown-in-react` (`Markdown.tsx`): it builds elements, never an html
+  string, so raw html in it shows as text. Its links open in a new tab, so
+  following one never leaves the review, and only http(s), mailto, `#` and
+  relative ones are links at all (`javascript:` and the like show as text);
+  images only from http(s) or `data:image`. The reviewer's own messages show
+  exactly as typed. The package ships its TypeScript source rather than
+  declarations, and that source doesn't pass this project's stricter checks,
+  so `tsconfig.json`'s `paths` points the typechecker at
+  `src/snarkdownInReact.d.ts` instead; vite bundles the package itself,
+  its `react` aliased to `preact/compat` like `react-resizable-panels`'. Everything that reads notes must tolerate both shapes and a
   half-written file — a note file is written while it is being read.
 - A note zone has two states: a textarea while it is being written or replied
   to, then the thread with Reply/Delete. Without that change of state, saving

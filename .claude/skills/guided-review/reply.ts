@@ -14,6 +14,9 @@
  *
  * `--asking` only marks the message as a question, for the reviewer's eye;
  * either way the reply lands in their note box and they can type straight back.
+ *
+ * The text is markdown - `code`, **bold**, lists, links, fenced blocks - and
+ * the page renders it as such.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
