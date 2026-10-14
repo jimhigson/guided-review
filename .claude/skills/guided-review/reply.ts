@@ -39,7 +39,7 @@ const { values } = parseArgs({
 const { notes: notesFile, path, line: lineText, text, asking } = values;
 if (notesFile === undefined || path === undefined || lineText === undefined || text === undefined) {
   console.log(
-    "reply.ts --notes <review>/notes.json --path <file> --line <n> --text <what to say> [--asking]",
+    "reply.ts --notes <review>/notes.json --path <file> --line <n> --text <what to say, in markdown> [--asking]",
   );
   process.exit(1);
 }

@@ -26,6 +26,7 @@
 import chokidar from "chokidar";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 type NoteMessage = { from?: string; text?: string };
@@ -126,6 +127,12 @@ const printFresh = (): void => {
   for (const [where, text] of fresh.sort(([left], [right]) => (left < right ? -1 : 1))) {
     console.log(`- ${where} — ${text}`);
   }
+  // said with every batch, so whoever is handed these knows how to answer
+  // without going back to the skill's docs
+  console.log(
+    `answer each in its own thread - the text is markdown (\`code\`, **bold**, lists, links, fenced blocks):\n` +
+      `  node ${join(dirname(fileURLToPath(import.meta.url)), "reply.ts")} --notes ${notesFile} --path <file> --line <n> --text '<markdown>'`,
+  );
   if (once) {
     console.log("re-run awaitNotes.ts --once after handling these, or no further notes will reach you");
     process.exit(0);
