@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "preact/hooks";
 
-import { commits, selectedCommit, stops } from "../payload.ts";
+import { commitTip, prTip } from "../barTips.ts";
+import { activeReview, commits, selectedCommit, stops } from "../payload.ts";
 import { isHeldKey, stagedRef, uncommittedRef, workingRef } from "../ReviewPayload.ts";
 import { selectCommitAndRemount } from "../reviewSwitch.ts";
 import { keepCurrentInView } from "./barScroll.ts";
@@ -33,7 +34,7 @@ export const CommitBar = () => {
           class={`commit-step ${selectedCommit === undefined ? "is-current" : ""}`}
           aria-pressed={selectedCommit === undefined}
           disabled={selectedCommit === undefined}
-          title="every commit, in order"
+          title={`every commit, in order\n${prTip(activeReview).split("\n").slice(1).join("\n")}`.trim()}
           onClick={() => selectCommitAndRemount(undefined)}
         >
           all
@@ -46,7 +47,7 @@ export const CommitBar = () => {
           class={`commit-step ${selectedCommit === commit.sha ? "is-current" : ""}`}
           aria-pressed={selectedCommit === commit.sha}
           disabled={selectedCommit === commit.sha}
-          title={`${commit.short} ${commit.subject}${commit.pr === undefined ? "" : ` — ${commit.pr}`}`}
+          title={commitTip(commit)}
           onClick={() => selectCommitAndRemount(commit.sha)}
         >
           <span class={`commit-sha ${local(commit.sha) ? "is-uncommitted" : ""} ${isHeldKey(commit.sha) ? "is-held" : ""}`}>

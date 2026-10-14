@@ -16,6 +16,7 @@ import { scopeFiles } from "./scopeFiles.ts";
 import { imageMimeOf, isImagePath } from "./src/imagePaths.ts";
 import {
   type ConflictFileKind,
+  type ChangeSize,
   type EditCommit,
   type EditIndex,
   type ImageRow,
@@ -757,6 +758,40 @@ const historyOf = (
       return { sha, short, subject, files: files.filter((file) => file !== "") };
     });
 
+/** each commit's added and removed lines, base to head - one git call */
+const lineCountsOf = (repo: string, base: string, head: string): Map<string, [number, number]> =>
+  new Map(
+    git(repo, "log", "--reverse", "--shortstat", "--format=%x00%H", `${base}..${head}`)
+      .split("\u0000")
+      .slice(1)
+      .map((record): [string, [number, number]] => {
+        const [sha = "", ...rest] = record.split("\n");
+        const stat = rest.join(" ");
+        return [sha, [Number(/(\d+) insertion/.exec(stat)?.[1] ?? 0), Number(/(\d+) deletion/.exec(stat)?.[1] ?? 0)]];
+      }),
+  );
+
+/** a PR's commits, files and lines, as its own diff counts them - from where
+    it left its base */
+export const sizeOf = (repo: string, base: string, head: string): ChangeSize | undefined => {
+  try {
+    return sizeBetween(repo, base, head);
+  } catch {
+    // a sibling never fetched, or offline: the bar just says less about it
+    return undefined;
+  }
+};
+
+const sizeBetween = (repo: string, base: string, head: string): ChangeSize => {
+  const stat = git(repo, "diff", "--shortstat", `${base}...${head}`);
+  return {
+    commits: Number(git(repo, "rev-list", "--count", `${base}..${head}`).trim()),
+    files: Number(/(\d+) files? changed/.exec(stat)?.[1] ?? 0),
+    added: Number(/(\d+) insertion/.exec(stat)?.[1] ?? 0),
+    removed: Number(/(\d+) deletion/.exec(stat)?.[1] ?? 0),
+  };
+};
+
 /** one PR whose commits go into the edit index: its review's key, and the
     refs its range runs between */
 export type EditLayer = { key: string; base: string; head: string };
@@ -771,15 +806,18 @@ export const editIndexOf = (repo: string, layers: EditLayer[]): EditIndex => {
   const byPath: Record<string, number[]> = {};
   for (const layer of layers) {
     let history: ReturnType<typeof historyOf>;
+    let lines: Map<string, [number, number]>;
     try {
       history = historyOf(repo, layer.base, layer.head);
+      lines = lineCountsOf(repo, layer.base, layer.head);
     } catch {
       console.error(`warning: couldn't read the commits of ${layer.key}; rows won't say where it edits them`);
       continue;
     }
     for (const [index, { sha, short, subject, files }] of history.entries()) {
       const at = commits.length;
-      commits.push({ sha, short, subject, review: layer.key, n: index + 1, of: history.length });
+      const [added = 0, removed = 0] = lines.get(sha) ?? [];
+      commits.push({ sha, short, subject, review: layer.key, n: index + 1, of: history.length, added, removed });
       for (const path of files) {
         (byPath[path] ??= []).push(at);
       }

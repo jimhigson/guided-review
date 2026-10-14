@@ -295,6 +295,9 @@ export type ShellReview = {
   /** the every-layer-at-once review, which the stack bar offers as a toggle
       rather than as another layer of the chain */
   aggregate?: boolean;
+  /** its commits, files and lines - every PR's, reviewed or not. Absent from
+      a page built before this, and where the review isn't of a PR */
+  size?: ChangeSize;
 };
 
 /** one commit of a PR of the stack, as the edit index lists it */
@@ -307,7 +310,13 @@ export type EditCommit = {
   /** its place in that PR: commit `n` of `of`, from 1 */
   n: number;
   of: number;
+  /** lines it adds and removes, across all its files */
+  added?: number;
+  removed?: number;
 };
+
+/** how big a PR is, for the stack bar to say on hover */
+export type ChangeSize = { commits: number; files: number; added: number; removed: number };
 
 /**
  * which commits of which PRs edit each file - every PR of the stack, reviewed

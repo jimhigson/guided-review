@@ -43,11 +43,12 @@ import {
   editIndexOf,
   fetchStackRefs,
   headBranchOf,
+  sizeOf,
   stackHeadRef,
   stackTrunkRef,
   shortRef,
 } from "./reviewAssembly.ts";
-import { type RebuildRecipe, type ReviewShell, type ShellReview } from "./src/ReviewPayload.ts";
+import { type ChangeSize, type RebuildRecipe, type ReviewShell, type ShellReview } from "./src/ReviewPayload.ts";
 
 type Options = ReviewOptions & {
   groups: string;
@@ -170,6 +171,9 @@ const recipeFor = (
   };
 };
 
+/** a shell entry's size, where git could say it */
+const sized = (size: ChangeSize | undefined): { size?: ChangeSize } => (size === undefined ? {} : { size });
+
 /**
  * every review the page should know about: this one (carried), and - when a
  * stack file names 2+ PRs - its siblings, carried or not
@@ -202,6 +206,7 @@ const shellFor = (
     ...(baseRef === undefined ? {} : { baseRef }),
     ...(headSha === undefined ? {} : { headSha }),
     ...(head === undefined ? {} : { head }),
+    ...(options.mode === "pr" && headSha !== undefined ? sized(sizeOf(repo, baseSha, headSha)) : {}),
   };
 
   // a PR's own commits, for its rows to say which of them edit each file
@@ -229,23 +234,29 @@ const shellFor = (
   fetchStackRefs(repo, stack.entries, false);
   const [bottom] = stack.entries;
   const trunk = bottom === undefined ? "" : stackTrunkRef(repo, bottom.base);
-  const edits = editIndexOf(
-    repo,
-    stack.entries.map((entry, index) => {
-      const below = stack.entries[index - 1];
-      return entry.key === mine?.key && headSha !== undefined ?
-          { key: entry.key, base: baseSha, head: headSha }
-        : { key: entry.key, base: below === undefined ? trunk : stackHeadRef(below), head: stackHeadRef(entry) };
-    }),
-  );
+  const layers = stack.entries.map((entry, index) => {
+    const below = stack.entries[index - 1];
+    return entry.key === mine?.key && headSha !== undefined ?
+        { key: entry.key, base: baseSha, head: headSha }
+      : { key: entry.key, base: below === undefined ? trunk : stackHeadRef(below), head: stackHeadRef(entry) };
+  });
+  const edits = editIndexOf(repo, layers);
   return {
     current: mine?.key ?? key,
     edits,
-    reviews: stack.entries.map((entry) =>
-      entry.key === mine?.key ?
-        { ...own, key: entry.key, label: entry.label, title: entry.title, url: entry.url, head: entry.head, block: reviewBlockId(entry.key) }
-      : { key: entry.key, label: entry.label, title: entry.title, url: entry.url, head: entry.head },
-    ),
+    reviews: stack.entries.map((entry, index) => {
+      const layer = layers[index];
+      return entry.key === mine?.key ?
+          { ...own, key: entry.key, label: entry.label, title: entry.title, url: entry.url, head: entry.head, block: reviewBlockId(entry.key) }
+        : {
+            key: entry.key,
+            label: entry.label,
+            title: entry.title,
+            url: entry.url,
+            head: entry.head,
+            ...sized(layer === undefined ? undefined : sizeOf(repo, layer.base, layer.head)),
+          };
+    }),
   };
 };
 

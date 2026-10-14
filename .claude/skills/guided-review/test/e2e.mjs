@@ -988,6 +988,15 @@ const scenarioL = async () => {
     await page.waitForSelector(".row");
     await sleep(800);
 
+    // hovering a PR or a commit says how big it is, as git counts it
+    const shortstat = (range) => {
+      const stat = sh(`git diff --shortstat ${range}`, repo);
+      return `${/(\d+) files? changed/.exec(stat)?.[1]} file${/^ 1 file /.test(stat) ? "" : "s"} · +${/(\d+) insertion/.exec(stat)?.[1] ?? 0} −${/(\d+) deletion/.exec(stat)?.[1] ?? 0}`;
+    };
+    const twoTip = await page.locator(".stack-step", { has: page.locator(".stack-number", { hasText: /^two$/ }) }).locator(".stack-pr").getAttribute("title");
+    check(S, "a PR's tooltip gives its place, commits, files and lines", twoTip?.includes("PR 2/3") && twoTip.includes(`2 commits · ${shortstat("one...two")}`), twoTip);
+    const commitTipText = await page.locator(".commit-bar .commit-step", { hasText: one2.slice(0, 7) }).getAttribute("title");
+    check(S, "a commit's tooltip gives its place, files and lines", commitTipText?.includes("commit 2 of 3") && commitTipText.includes(shortstat(`${one2}^ ${one2}`)), commitTipText);
     check(S, "a file edited in another PR says which PR and commit", JSON.stringify(await alsoOf(page, "b.ts")) === '["also edited in PR 2/3 commit 1/2; PR 3/3"]', JSON.stringify(await alsoOf(page, "b.ts")));
     check(S, "a file whose every edit is on the page says nothing", JSON.stringify(await alsoOf(page, "a.ts")) === '["",""]', JSON.stringify(await alsoOf(page, "a.ts")));
 

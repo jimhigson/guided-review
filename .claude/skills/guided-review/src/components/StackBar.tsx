@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "preact/hooks";
 
+import { prTip } from "../barTips.ts";
 import { restack } from "../heldActions.ts";
 import { staleStore } from "../heldSync.ts";
 import { liveEditors } from "../liveEditors.ts";
@@ -136,7 +137,7 @@ export const StackBar = ({ state }: StackBarProps) => {
           type="button"
           class={`stack-all ${readingEveryLayer ? "is-current" : ""}`}
           aria-pressed={readingEveryLayer}
-          title={`${everyLayer.title} - every file once, with what each PR said about it`}
+          title={`${prTip(everyLayer)}\nevery file once, with what each PR said about it`}
           disabled={readingEveryLayer}
           onClick={() => switchReview(everyLayer.key)}
         >
@@ -150,7 +151,7 @@ export const StackBar = ({ state }: StackBarProps) => {
           {review.key === active.key ?
             <span class="stack-pr-pill is-current">
               {readCheckbox(review)}
-              <span class="stack-pr in-pill is-current" title={review.title} aria-current="page">
+              <span class="stack-pr in-pill is-current" title={prTip(review, `PR ${index + 1}/${layers.length}`)} aria-current="page">
                 <span class="stack-number">{review.label}</span>
                 <span class="stack-title">{review.title}</span>
               </span>
@@ -161,7 +162,7 @@ export const StackBar = ({ state }: StackBarProps) => {
               <button
                 type="button"
                 class="stack-pr in-pill"
-                title={review.title}
+                title={prTip(review, `PR ${index + 1}/${layers.length}`)}
                 onClick={() => switchReview(review.key)}
               >
                 <span class="stack-number">{review.label}</span>
@@ -181,7 +182,7 @@ export const StackBar = ({ state }: StackBarProps) => {
                   {review.url !== "" && <span class="stack-forge">↗</span>}
                 </>
               );
-              const describe = `${review.title} — ${
+              const describe = `${prTip(review, `PR ${index + 1}/${layers.length}`)}\n${
                 review.awaitingContribution === true ?
                   "review requested from its agent, not yet contributed"
                 : "no review in this page"

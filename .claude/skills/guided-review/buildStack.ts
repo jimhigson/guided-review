@@ -48,16 +48,24 @@ import {
   readResolvedStack,
   reviewBlockId,
   type StackEntry,
+  sizeOf,
   stackHeadRef as headRefOf,
   stackTrunkRef,
 } from "./reviewAssembly.ts";
 import {
+  type ChangeSize,
   type RebuildRecipe,
   type ReviewGroup,
   type ReviewItem,
   type ReviewShell,
   type ShellReview,
 } from "./src/ReviewPayload.ts";
+
+/** a shell entry's size, where git can say it */
+const withSize = (repo: string, base: string, head: string): { size?: ChangeSize } => {
+  const size = sizeOf(repo, base, head);
+  return size === undefined ? {} : { size };
+};
 
 /** one layer's authored review, kept for the every-layer-at-once one */
 type AuthoredLayer = {
@@ -238,6 +246,7 @@ const main = async (): Promise<void> => {
       title: entry.title,
       url: entry.url,
       head: entry.head,
+      ...withSize(repo, base, headRefOf(entry)),
     };
 
     if (!existsSync(groupsPath)) {
@@ -342,6 +351,7 @@ const main = async (): Promise<void> => {
         block: reviewBlockId(key),
         reviewId: collected.payload.id,
         baseSha: collected.baseSha,
+        ...withSize(repo, trunk, headRefOf(top)),
       });
       reviewBlocks.push(jsonBlock(reviewBlockId(key), collected.payload), ...collected.imageBlocks);
       carried.push(key);

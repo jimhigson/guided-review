@@ -1349,6 +1349,13 @@ diffs stay in `ui-monospace`.
   Space again unticks it. It doesn't while you're typing into a Monaco
   editor, a note, or any field. Over a focused button it ticks instead of
   pressing the button. The row's tick box says so in its tooltip.
+- **Hovering a PR or a commit says how big it is.** The stack bar's PRs
+  (and "all") give their place, commits, files and lines added and removed;
+  the commit bar's commits give their place in the PR, files and lines; a
+  served bar's staged, working and held stops their files, and lines once
+  read. The build records each PR's `size` on its shell entry (`sizeOf`:
+  `git diff --shortstat` from where it left its base, so net across the PR)
+  and each commit's lines in the edit index; `barTips.ts` says it.
 - **Every diff says what it is between.** Above each editor:
   "diff `main~2 (52e9aab)` → `item-behaviours (a84dc34)`", plus "+ working
   tree" when the right side follows the disk. The names are git's own
