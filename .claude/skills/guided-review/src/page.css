@@ -498,7 +498,8 @@ ol.tree, ul.tree-files, ul.fs-tree, ul.fs-dir-children, ul.tree-flat {
   z-index: 1;
 }
 
-button.tree-group-title {
+.tree-group-title {
+  text-decoration: none;
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--display);
@@ -515,7 +516,7 @@ button.tree-group-title {
   white-space: nowrap;
 }
 
-button.tree-group-title:hover { color: var(--accent); }
+.tree-group-head:hover .tree-group-title { color: var(--accent); }
 
 .tree-count {
   flex: none;
@@ -544,6 +545,7 @@ ul.tree-files {
 }
 
 .tree-file-link {
+  text-decoration: none;
   display: flex;
   align-items: baseline;
   gap: 0.3rem;
@@ -744,14 +746,15 @@ button.fs-dir-toggle:focus-visible { outline: 2px solid var(--accent); outline-o
   text-overflow: ellipsis;
 }
 
-/* the fs tree is a tree widget: its items take the keyboard focus (one tab
-   stop, arrows between them) and can be selected several at once - by
-   ctrl/cmd-click, shift-click or shift-arrows - to tick them together */
-.fs-tree [role="treeitem"] { cursor: pointer; outline: none; }
-.fs-tree:focus-within [role="treeitem"]:focus-visible,
-.fs-tree [role="treeitem"]:focus { box-shadow: inset 0 0 0 1px var(--accent); }
-.fs-tree .is-selected:not(.is-ticked) { background: color-mix(in srgb, var(--accent) 18%, transparent); }
-.fs-tree li.tree-file.is-ticked.is-selected { border-color: var(--accent); opacity: 0.9; }
+/* every contents view is a tree widget: its items take the keyboard focus
+   (one tab stop, arrows between them) and can be selected several at once -
+   by ctrl/cmd-click, shift-click or shift-arrows - to tick them together */
+.tree[role="tree"] [role="treeitem"] { cursor: pointer; outline: none; }
+.tree[role="tree"] [role="treeitem"]:focus { box-shadow: inset 0 0 0 1px var(--accent); }
+.tree[role="tree"] .is-selected:not(.is-ticked) { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.tree[role="tree"] li.tree-file.is-ticked.is-selected { border-color: var(--accent); opacity: 0.9; }
+/* a chapter's heading is sticky, so it keeps its own ground when selected */
+.tree[role="tree"] .tree-group-head.is-selected { background: color-mix(in srgb, var(--accent) 18%, var(--paper)); }
 
 ul.fs-dir-children {
   margin: 0.1rem 0 0.2rem 0.55rem;

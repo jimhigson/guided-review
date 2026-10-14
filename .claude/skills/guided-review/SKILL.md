@@ -1204,8 +1204,11 @@ diffs stay in `ui-monospace`.
   everything sticky under it — already accounts for it.
 - **A contents sidebar**, sticky beside the reading order: every group and
   every file as a tree, each with its own checkbox and `done/total`, the file
-  ticks and the row ticks being the same state. Clicking a file opens its
-  group and the file itself and scrolls to it; a scroll-spy keeps the file
+  ticks and the row ticks being the same state. Its three views - chapters,
+  fs tree, diff size - are one tree widget (see "Every contents view is a
+  tree widget"). Each file, and each chapter's heading, is a real link, so a
+  middle-click or "open in new tab" opens it in a tab of its own; a plain
+  click opens its group and the file itself and scrolls to it; a scroll-spy keeps the file
   being read highlighted, suppressed for a second after a click so an explicit
   jump isn't overruled by the rows it travelled past. Under 60rem it becomes
   an overlay that starts closed and closes again once used.
@@ -1387,15 +1390,26 @@ diffs stay in `ui-monospace`.
   content arriving - asked it for lines that no longer exist and it threw
   "Illegal value for lineNumber". Revert is an ordinary edit, so it can be
   undone.
-- **The fs tree is a tree widget** (Headless Tree, `@headless-tree/core` and
-  `/react`): one tab stop; arrows move, left/right fold and unfold, Home/End,
-  Enter goes to the file; click, ctrl/cmd-click, shift-click, shift-arrows and
+- **Every contents view is a tree widget** (Headless Tree,
+  `@headless-tree/core` and `/react`), through one component,
+  `ContentsTree.tsx`; each view only builds its nodes - files, and folders
+  with their own heading markup (a chapter, a directory run inside one, an
+  fs directory or package; diff size is a flat list). One tab stop; arrows
+  move, left/right fold and unfold, Home/End, Enter goes to the file (or a
+  chapter's first file); click, ctrl/cmd-click, shift-click, shift-arrows and
   ctrl-A select; Space ticks everything selected (or unticks it, all ticked
-  already), and ticking a selected item's box ticks the selection. A directory
-  a shift-range only passes through doesn't pull in its other files. The
-  library owns focus and selection; the rows are the page's own. Ticking moves
-  a row to the top of its directory, which drops its focus, so a tick from the
-  tree puts the focus back, and the page's own Space leaves a tree alone.
+  already), and ticking a selected item's box ticks the selection. A plain
+  click on a chapter goes to its first file and leaves it open; its caret
+  folds it. A folder a shift-range only passes through doesn't pull in its
+  other files - judged by the files it stands for, since a read file moves
+  up out from under its heading. A view hands its nodes over read-first, as
+  it shows them, so the keyboard walks what the eye does. The library owns
+  focus and selection; the rows are the page's own. Ticking moves a row,
+  which drops its focus, so a tick from the tree puts the focus back, and
+  the page's own Space leaves a tree alone. In a tree, ctrl/cmd-click is
+  selection, so a new tab is a middle-click or the link's context menu.
+  Icon glyphs (carets) are written as `\uf229`-style escapes: the raw
+  private-use characters are invisible, and an edit can drop them unseen.
 - **A renamed file is diffed against its old path.** `build.ts` asks git
   for the scope's renames (`--name-status -M`) and reads a renamed file's
   before side, and its line counts, from the path it had then. Its row header

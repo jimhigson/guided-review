@@ -1,6 +1,7 @@
 import { isImagePath } from "../imagePaths.ts";
 import { awaitingReply, messagesOf, type Note } from "../notes.ts";
 import { basename, dirname } from "../paths.ts";
+import { fileHref } from "../fileHref.ts";
 import { tickKeyOf } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
 import { type ReviewFile } from "../ReviewPayload.ts";
@@ -72,9 +73,18 @@ export const TreeFileRow = ({ file, state, notes, showDir, item }: TreeFileRowPr
         <button type="button" class="tree-file-link" title={file.path} onClick={() => state.goTo(file)}>
           {label}
         </button>
-      : <span class="tree-file-link" title={file.path}>
+      : // a real link, so a middle-click or "open in new tab" opens the file
+        // in a tab of its own. A plain click is the tree's: it selects the
+        // file and goes to it here, as the link's own url would
+        <a
+          class="tree-file-link"
+          href={fileHref(file)}
+          title={file.path}
+          tabIndex={-1}
+          onClick={(event) => event.preventDefault()}
+        >
           {label}
-        </span>
+        </a>
       }
       {/* outlined while any thread waits on the agent, filled once it has
           answered them all - kept on a ticked file too, since a reply

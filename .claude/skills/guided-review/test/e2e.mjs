@@ -1098,16 +1098,17 @@ const scenarioM = async () => {
   const { page, errors } = await open(server.port);
   await page.selectOption('select[aria-label="Contents view"]', "tree");
   await page.waitForSelector(".fs-tree [role=treeitem]");
-  const item = (name) => page.locator(`.fs-tree [role=treeitem][aria-label="${name}"]`);
+  const item = (name) => page.locator(`.tree[role="tree"] [role=treeitem][aria-label="${name}"]`);
   const ticked = async () =>
     (await page.locator(".row").evaluateAll((rows) => rows.filter((row) => row.querySelector("input.tick").checked).map((row) => row.dataset.path))).sort();
-  const selected = () => page.locator('.fs-tree [role=treeitem][aria-selected="true"]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")));
+  const selected = () => page.locator('.tree[role="tree"] [role=treeitem][aria-selected="true"]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")));
   const focused = () => page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? null);
   const press = async (key) => {
     await page.keyboard.press(key);
     await sleep(300);
   };
 
+  check(S, "a directory shows its fold caret", (await page.locator(".fs-dir-caret").first().textContent())?.trim() !== "");
   check(S, "the fs tree is a tree, one tab stop", (await page.locator('.fs-tree[role="tree"]').count()) === 1 && (await page.locator('.fs-tree [role=treeitem][tabindex="0"]').count()) === 1);
   await item("lib/a.ts").click();
   await item("lib/c.ts").click({ modifiers: ["Shift"] });
@@ -1151,6 +1152,55 @@ const scenarioM = async () => {
   await press("Space");
   check(S, "Space on a directory ticks every file in it", JSON.stringify(await ticked()) === '["lib/a.ts","lib/b.ts","lib/c.ts"]', JSON.stringify(await ticked()));
   check(S, "...without Space on the page ticking the file being read as well", !(await ticked()).includes("web/d.ts"));
+  await page.getByRole("button", { name: "Clear ticks" }).click();
+  await sleep(300);
+
+  // the chapters view is the same tree widget
+  await page.selectOption('select[aria-label="Contents view"]', "guided");
+  await page.waitForSelector('.tree[role="tree"] [role=treeitem]');
+  check(S, "a chapter shows its fold caret", (await page.locator(".tree-group-head .caret").first().textContent())?.trim() !== "");
+  check(S, "the chapters view is a tree too, one tab stop", (await page.locator('.tree[role="tree"]').count()) === 1 && (await page.locator('.tree [role=treeitem][tabindex="0"]').count()) === 1);
+  await item("lib/a.ts").click();
+  await item("web/d.ts").click({ modifiers: ["Shift"] });
+  await press("Space");
+  check(S, "in chapters, a shift-range through a directory heading ticks just the range", JSON.stringify(await ticked()) === '["lib/a.ts","lib/b.ts","lib/c.ts","web/d.ts"]', JSON.stringify(await ticked()));
+  await press("Space");
+  check(S, "...and Space again unticks it", (await ticked()).length === 0, JSON.stringify(await ticked()));
+  await item("lib/c.ts").click();
+  await item("All").click();
+  await sleep(500);
+  check(S, "clicking a chapter goes to its first file", new URL(page.url()).searchParams.get("file") === "lib/a.ts", page.url());
+  check(S, "...without folding it", (await item("All").getAttribute("aria-expanded")) === "true");
+  await press("ArrowLeft");
+  check(S, "left folds a chapter", (await item("All").getAttribute("aria-expanded")) === "false");
+  await press("ArrowRight");
+  await press("Space");
+  check(S, "Space on a chapter ticks every file in it", (await ticked()).length === 5, JSON.stringify(await ticked()));
+  await press("Space");
+  check(S, "...and again unticks them", (await ticked()).length === 0, JSON.stringify(await ticked()));
+
+  // sidebar entries are real links, so they open in a tab of their own
+  const link = page.locator('.tree [role=treeitem][aria-label="web/e.ts"] a.tree-file-link');
+  const href = await link.getAttribute("href");
+  check(S, "a sidebar file is a link to it", href !== null && new URL(href).searchParams.get("file") === "web/e.ts", String(href));
+  const [tab] = await Promise.all([page.context().waitForEvent("page", { timeout: 10_000 }), link.click({ button: "middle" })]);
+  await tab.waitForSelector(".row", { state: "attached" });
+  await sleep(1500);
+  check(S, "...which a middle-click opens in a new tab, on that file", new URL(tab.url()).searchParams.get("file") === "web/e.ts", tab.url());
+  await tab.close();
+  check(S, "...while a plain click stays in the page", (await page.context().pages()).length === 1);
+  check(S, "a chapter heading links to its first file", new URL((await page.locator(".tree-group-title").first().getAttribute("href")) ?? "http://x").searchParams.get("file") === "lib/a.ts");
+
+  // and the diff-size view
+  await page.selectOption('select[aria-label="Contents view"]', "size");
+  await page.waitForSelector('.tree-flat[role="tree"] [role=treeitem]');
+  const flat = await page.locator('.tree-flat [role=treeitem]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")));
+  await item(flat[0]).click();
+  await item(flat[2]).click({ modifiers: ["Shift"] });
+  await press("Space");
+  check(S, "in diff size, shift-click and Space tick the range", JSON.stringify(await ticked()) === JSON.stringify(flat.slice(0, 3).sort()), `${JSON.stringify(await ticked())} of ${JSON.stringify(flat)}`);
+  await page.keyboard.press("ArrowDown");
+  check(S, "...and the arrows move down the list", (await focused()) !== null);
   check(S, "no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
   await page.close();
   server.stop();

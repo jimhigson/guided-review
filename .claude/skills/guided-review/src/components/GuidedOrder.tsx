@@ -1,126 +1,96 @@
-import { useState } from "preact/hooks";
-
-import { notesStore } from "../notes.ts";
-import { type PathRun, runsByPath } from "../pathRuns.ts";
+import { fileHref } from "../fileHref.ts";
+import { runsByPath } from "../pathRuns.ts";
 import { filesInGroup, groups, tickKeyOf } from "../payload.ts";
 import { type ReadingState } from "../readingState.ts";
-import { useStore } from "../stores.ts";
+import { type ContentsNode, ContentsTree } from "./ContentsTree.tsx";
 import { TruncatedPathLabel } from "./PathLabel.tsx";
-import { TreeFileRow } from "./TreeFileRow.tsx";
 
 export type GuidedOrderProps = { state: ReadingState };
 
-/** the reading order authored into the review: every group in order, each
-    with its files in the order to read them - the default contents view */
+/**
+ * the reading order authored into the review: every chapter in order, each
+ * with its files in the order to read them - the default contents view.
+ *
+ * A chapter starts open, and closes once every file in it is ticked - until
+ * the reader folds or unfolds it, which then sticks. Clicking a chapter goes
+ * to its first file. Inside one, a run of files in the same directory sits
+ * under a heading naming it; read files gather above the headings as pills,
+ * and a heading left with nothing unread goes
+ */
 export const GuidedOrder = ({ state }: GuidedOrderProps) => {
-  const notes = useStore(notesStore);
+  const isTicked = (file: Parameters<typeof tickKeyOf>[0]): boolean => state.ticked.has(tickKeyOf(file));
 
-  const tickRun = (run: PathRun, on: boolean) => {
-    for (const file of run.files) {
-      state.tickFile(file, on);
-    }
-  };
-  // a chapter's file list defaults to open, then closed the moment every file
-  // in it is ticked - but only until the reader overrides it with the caret,
-  // which then sticks regardless of what ticking does afterward
-  const [openOverride, setOpenOverride] = useState<Map<number, boolean>>(
-    new Map(),
-  );
+  const nodes: ContentsNode[] = groups.map((group, index) => {
+    const files = filesInGroup(index);
+    const fileNode = (file: (typeof files)[number]): ContentsNode => ({ kind: "file", id: `f:${file.id}`, file, showDir: false });
+    const runs = runsByPath(files).flatMap((run, runIndex): ContentsNode[] => {
+      const unread = run.files.filter((file) => !isTicked(file));
+      if (run.path === "") {
+        return unread.map(fileNode);
+      }
+      return unread.length === 0 ?
+          []
+        : [
+            {
+              kind: "folder",
+              id: `r:${index}:${runIndex}`,
+              name: run.path,
+              files: run.files,
+              children: unread.map(fileNode),
+              defaultOpen: true,
+              layout: { kind: "inline", head: "tree-path-heading" },
+              count: false,
+              head: () => (
+                <>
+                  <span class="dir-icon is-open" aria-hidden="true" />
+                  <TruncatedPathLabel class="tree-path-label" path={run.path} suffix="/" />
+                </>
+              ),
+            },
+          ];
+    });
+    return {
+      kind: "folder",
+      id: `g:${index}`,
+      name: group.title,
+      files,
+      children: [...files.filter(isTicked).map(fileNode), ...runs],
+      defaultOpen: !files.every(isTicked),
+      layout: { kind: "nested", wrap: "tree-group", head: "tree-group-head", list: "tree-files" },
+      count: true,
+      head: () => (
+        // a link to the chapter's first file, for a new tab; a plain click is
+        // the tree's, and goes there in place
+        <a
+          class="tree-group-title"
+          href={files[0] === undefined ? undefined : fileHref(files[0])}
+          title={group.title}
+          tabIndex={-1}
+          onClick={(event) => event.preventDefault()}
+        >
+          Chapter {index + 1}: {group.title}
+        </a>
+      ),
+      tail: ({ open, toggle }) => (
+        <button
+          type="button"
+          class="caret"
+          tabIndex={-1}
+          aria-expanded={open}
+          aria-label={open ? "Collapse this chapter" : "Expand this chapter"}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggle();
+          }}
+        >
+          {open ? "\uf229" : "\uf231"}
+        </button>
+      ),
+      open: () => state.goTo(files[0]),
+      // ticking a whole chapter folds it in the reading order too
+      tick: (on) => state.tickGroup(index, on),
+    };
+  });
 
-  return (
-    <ol class="tree">
-      {groups.map((group, index) => {
-        const files = filesInGroup(index);
-        const done = files.filter((file) => state.ticked.has(tickKeyOf(file))).length;
-        const fullyTicked = done === files.length;
-        const open = openOverride.get(index) ?? !fullyTicked;
-        return (
-          <li class="tree-group" key={index}>
-            <div class="tree-group-head">
-              <input
-                class="tick small"
-                type="checkbox"
-                checked={fullyTicked}
-                indeterminate={done > 0 && done < files.length}
-                aria-label={`Tick every file in ${group.title}`}
-                onChange={(event) =>
-                  state.tickGroup(index, event.currentTarget.checked)
-                }
-              />
-              <button
-                type="button"
-                class="tree-group-title"
-                title={group.title}
-                onClick={() => state.goTo(files[0])}
-              >
-                Chapter {index + 1}: {group.title}
-              </button>
-              <span class="tree-count">
-                {done}/{files.length}
-              </span>
-              <button
-                type="button"
-                class="caret"
-                aria-expanded={open}
-                aria-label={
-                  open ? "Collapse this chapter" : "Expand this chapter"
-                }
-                onClick={() =>
-                  setOpenOverride((previous) =>
-                    new Map(previous).set(index, !open),
-                  )
-                }
-              >
-                {open ? "" : ""}
-              </button>
-            </div>
-            {open && (
-              <ul class="tree-files">
-                {runsByPath(files).flatMap((run, runIndex) => {
-                  const runDone = run.files.filter((file) =>
-                    state.ticked.has(tickKeyOf(file)),
-                  ).length;
-                  return [
-                    // once every file under a heading is a pill, they've all
-                    // moved up out from under it, leaving it heading nothing
-                    run.path === "" || runDone === run.files.length ?
-                      null
-                    : <li class="tree-path-heading" key={`path-${runIndex}`}>
-                        <input
-                          class="tick small"
-                          type="checkbox"
-                          checked={runDone === run.files.length}
-                          indeterminate={
-                            runDone > 0 && runDone < run.files.length
-                          }
-                          aria-label={`Tick every file in ${run.path}`}
-                          onChange={(event) =>
-                            tickRun(run, event.currentTarget.checked)
-                          }
-                        />
-                        <span class="dir-icon is-open" aria-hidden="true" />
-                        <TruncatedPathLabel
-                          class="tree-path-label"
-                          path={run.path}
-                          suffix="/"
-                        />
-                      </li>,
-                    ...run.files.map((file) => (
-                      <TreeFileRow
-                        key={file.id}
-                        file={file}
-                        state={state}
-                        notes={notes[file.path] ?? []}
-                        showDir={false}
-                      />
-                    )),
-                  ];
-                })}
-              </ul>
-            )}
-          </li>
-        );
-      })}
-    </ol>
-  );
+  return <ContentsTree state={state} nodes={nodes} label="Contents, in reading order" as="ol" rootClass="tree" />;
 };
