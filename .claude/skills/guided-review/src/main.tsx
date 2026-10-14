@@ -6,6 +6,7 @@ import { reconcileFiles, trackedPaths } from "./fileSync.ts";
 import { followScope, type ScopeFile } from "./scopeSync.ts";
 import { followStops, loadStopSides } from "./stopSync.ts";
 import { followHolds } from "./heldSync.ts";
+import { type CheckoutNow, followCheckout } from "./checkoutSync.ts";
 import { type HeldEdits, type ReviewStop } from "./ReviewPayload.ts";
 import { imageStatsStore, startImageStatsSweep } from "./imageDiff/imageStats.ts";
 import { liveEditors } from "./liveEditors.ts";
@@ -60,6 +61,8 @@ type ServerState = {
   /** every PR's held edits, and the PRs left on an older head of the one below */
   holds?: HeldEdits[] | null;
   stale?: string[] | null;
+  /** which branch is checked out now - null while git is mid-rebase */
+  checkout?: CheckoutNow | null;
 };
 
 const agentSaid = (state: ServerState) =>
@@ -132,6 +135,7 @@ const pollState = async (): Promise<void> => {
   await followScope(state.scope);
   await followStops(state.stops);
   await followHolds(state.holds, state.stale);
+  followCheckout(state.checkout);
 };
 
 const mountApp = (root: HTMLElement, initialTicks: Set<string>): void => {

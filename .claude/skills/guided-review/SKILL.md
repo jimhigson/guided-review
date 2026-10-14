@@ -321,6 +321,11 @@ point at whichever review's store the note belongs to. Beside each PR of a
 served stack the bar says which is **checked out**, or offers **switch to**,
 which runs `gh stack checkout <branch>` in the served checkout and reloads
 (git's refusal, uncommitted changes in the way say, comes back as a toast).
+A switch made anywhere else - a terminal, an agent - is noticed too: each
+poll says which branch is checked out (not while git is mid-rebase or
+merge, whose detached steps are no switch), and the page reloads for it, or,
+while an editor holds an edit not yet saved, says so in a toast with a
+Reload button (`checkoutSync.ts`).
 
 ## 2. Get the exact file list and status
 

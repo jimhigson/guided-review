@@ -1277,6 +1277,15 @@ const scenarioN = async () => {
   await stackStep("auth").locator(".stack-switch").click();
   const moved = await until(() => branch() === "auth");
   check(S, "on a page of a whole stack, switch to checks the PR out too", moved !== undefined, `${branch()} | ${JSON.stringify(await toasts(stacked.page))}`);
+
+  // a switch made outside the page - in a terminal - reloads it
+  await stacked.page.waitForSelector(".stack-checked-out");
+  await stacked.page.evaluate(() => (window.__beforeSwitch = true));
+  sh("git checkout -q api", repo);
+  const reloaded = await until(() => stacked.page.evaluate(() => window.__beforeSwitch !== true).catch(() => false));
+  check(S, "a switch made in a terminal reloads the page", reloaded === true);
+  await stacked.page.waitForSelector(".stack-checked-out");
+  check(S, "...which then marks that PR checked out", (await stackStep("api").locator(".stack-checked-out").count()) === 1);
   await stacked.page.close();
   stackServer.stop();
 };
@@ -1562,6 +1571,21 @@ const scenarioP = async () => {
   await typeInto(`${first}:x.ts`, " held", 4);
   check(S, "a commit of the bar holds its edit", (await until(() => held())) !== undefined && git(`rev-parse ${held()}^`) === first);
   check(S, "...leaving the disk alone", !readFileSync(join(repo, "x.ts"), "utf8").includes("held"));
+
+  // an editor with an edit not saved - here, refused, as held elsewhere -
+  // isn't thrown away by a switch made outside the page: it is asked
+  const second = git("rev-parse HEAD");
+  await page.locator(".commit-bar .commit-step", { hasText: second.slice(0, 7) }).click();
+  await sleep(2000);
+  await typeInto(`${second}:x.ts`, " unsaved", 6);
+  await page.evaluate(() => (window.__beforeSwitch = true));
+  sh("git checkout -q main", repo);
+  const asked = await until(async () => (await toasts(page)).find((text) => text.includes("checkout switched to main")));
+  check(S, "a switch outside the page, with an edit unsaved, asks before reloading", asked !== undefined && (await page.evaluate(() => window.__beforeSwitch === true)), JSON.stringify(await toasts(page)));
+  sh("git checkout -q feature", repo);
+  await page.reload();
+  await page.waitForSelector(".row", { state: "attached" });
+  await sleep(2000);
 
   // the branch moves on under the held edits
   write(repo, { "y.ts": nine("y", { 5: "y5 second", 9: "y9 third" }) });

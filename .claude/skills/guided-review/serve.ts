@@ -555,6 +555,16 @@ class ReviewPage {
     return this.editable().reviewId;
   }
 
+  /** what the checkout is now, for an open page to notice a switch made
+      outside it - none while git is part-way through a rebase or merge, as
+      the detached steps of one are no switch */
+  checkoutNow(): { branch: string | null; editableReviewId: string | null } | null {
+    if (this.#midOperation()) {
+      return null;
+    }
+    return { branch: this.checkedOutBranch() ?? null, editableReviewId: this.editableReviewId() ?? null };
+  }
+
   /** the branch the served checkout is on, or undefined when it is on none */
   checkedOutBranch(): string | undefined {
     const branch = gitOut(this.repo, "rev-parse", "--abbrev-ref", "HEAD");
@@ -1444,6 +1454,8 @@ const handlePost = (
       stops: reviewPage.stops(store, editable) ?? null,
       // every PR's held edits, and the PRs a commit or amend left behind
       holds: reviewPage.holds(),
+      // which branch is checked out, and so which review edits it
+      checkout: reviewPage.checkoutNow(),
       stale: reviewPage.stale(),
     });
     return;
