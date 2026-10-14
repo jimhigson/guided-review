@@ -528,7 +528,8 @@ conversation) and include:
   which other files (in-chunk or in the other agent's chunk, named
   explicitly) it depends on, (c) its own recommended reading order for its
   chunk, grouped into named clusters with a sentence on why each cluster is
-  positioned where it is
+  positioned where it is - each test file in the cluster of the code it
+  tests, right after it, never a cluster of tests of its own
 - that chunk's `moves.ts` output, with the instruction to treat moved
   blocks as read except for their edits, and to report a moved file as
   "moved from X, plus Y" rather than describing its body afresh
@@ -541,18 +542,25 @@ conversation) and include:
 Once both/all agents report back, merge their per-chunk orders into a
 single sequence. Don't just concatenate chunks — decide where each chunk's
 material actually belongs relative to the others (e.g. shared low-level
-primitives first, then the core mechanism, then the concrete bugs/tests
-that motivated it as the "why", then the integration point that wires it
-into the rest of the system, then the periphery, then deep
-property/stochastic tests last as an optional appendix). Group by theme
+primitives first, then the core mechanism, then the integration point that
+wires it into the rest of the system, then the periphery). Group by theme
 over strict dependency order where a strict topo-sort would fragment
 clearly-related work across the document.
 
+**Tests go alongside what they test, never in a chapter of their own.** A
+test reads as evidence for the code beside it - what it is meant to do, and
+the case that broke - and a "Tests" chapter at the end strands it from
+that, so by the time the reader gets there the code it checks is chapters
+behind them. Put each test file in the chapter of the code it covers, right
+after that code. A test that covers several chapters goes with the one it
+checks most directly; test helpers and fixtures go with the tests that use
+them.
+
 Within a group, order files start-to-finish the way a reader should
 actually open them: deleted-then-new pairs read together for contrast,
-foundational types before the code that consumes them, trivial
-import-path-only renames batched and skimmed rather than given equal
-weight to substantive logic changes.
+foundational types before the code that consumes them, each test straight
+after the code it tests, trivial import-path-only renames batched and
+skimmed rather than given equal weight to substantive logic changes.
 
 ## 7. Author the groups json and build
 
