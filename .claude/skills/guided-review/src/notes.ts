@@ -14,6 +14,10 @@ export type NoteMessage = {
   text: string;
   /** the agent asked something rather than reporting what it did */
   asking?: boolean;
+  /** what the reviewer was reading when they wrote it: a commit, or held
+      edits (`held:<branch>`) - absent reading the PR whole. Where an edit
+      they ask for belongs, as their own would go from that row (held.ts) */
+  commit?: string;
 };
 
 export type Note = {
@@ -70,12 +74,12 @@ export const saveNotes = async (): Promise<void> => {
   }
 };
 
-export const sayOnNote = (path: string, line: number, text: string): void => {
+export const sayOnNote = (path: string, line: number, text: string, commit?: string): void => {
   if (text.trim() === "") {
     return;
   }
   const forPath = notesFor(path);
-  const said: NoteMessage = { from: "reviewer", text };
+  const said: NoteMessage = { from: "reviewer", text, ...(commit === undefined ? {} : { commit }) };
   const updated =
     noteAt(path, line) === undefined ?
       [...forPath, { line, messages: [said] }].sort((a, b) => a.line - b.line)

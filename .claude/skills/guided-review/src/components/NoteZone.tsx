@@ -24,6 +24,8 @@ export type NoteZoneProps = {
   line: number;
   /** the zone is finished with: rebuild them */
   done: () => void;
+  /** the commit the row reads, recorded with what the reviewer says */
+  commit?: string;
 };
 
 /**
@@ -31,7 +33,7 @@ export type NoteZoneProps = {
  * far, and a box that is always open, because replying is the point rather
  * than a mode you have to enter
  */
-export const NoteZone = ({ path, line, done }: NoteZoneProps) => {
+export const NoteZone = ({ path, line, done, commit }: NoteZoneProps) => {
   useStore(notesStore);
   const offline = useStore(offlineStore);
   const note = noteAt(path, line);
@@ -66,7 +68,7 @@ export const NoteZone = ({ path, line, done }: NoteZoneProps) => {
   }, [line]);
 
   const send = () => {
-    sayOnNote(path, line, draft);
+    sayOnNote(path, line, draft, commit);
     drafts.delete(draftKey);
     focusLine = line;
     done();

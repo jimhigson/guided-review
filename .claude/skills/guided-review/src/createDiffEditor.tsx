@@ -596,6 +596,7 @@ export const createDiffEditor = (
               <NoteZone
                 path={path}
                 line={line}
+                commit={commit}
                 done={() => {
                   editing = undefined;
                   drawNotes();

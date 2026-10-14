@@ -1608,7 +1608,110 @@ const scenarioQ = async () => {
   server.stop();
 };
 
-const scenarios = { Q: scenarioQ, P: scenarioP, O: scenarioO, N: scenarioN, M: scenarioM, L: scenarioL, K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
+/* ---- R: an edit a note asks for goes where the reviewer's own would ---------- */
+const scenarioR = async () => {
+  const S = "R";
+  const repo = fresh("repo-r");
+  gitInit(repo);
+  const git = (cmd) => sh(`git ${cmd}`, repo).trim();
+  const nine = (prefix, change = {}) => Array.from({ length: 9 }, (_, index) => change[index + 1] ?? `${prefix}${index + 1}`).join("\n") + "\n";
+  write(repo, { "x.ts": nine("x") });
+  sh("git add -A && git commit -qm base && git checkout -qb feature", repo);
+  write(repo, { "x.ts": nine("x", { 2: "x2 first" }) });
+  sh("git commit -qam first", repo);
+  const first = git("rev-parse HEAD");
+  write(repo, { "x.ts": nine("x", { 2: "x2 first", 8: "x8 second" }) });
+  sh("git commit -qam second", repo);
+  const second = git("rev-parse HEAD");
+  sh("git checkout -q main", repo);
+  const id = `r-${Date.now()}`;
+  const { html } = build(repo, "r", { meta: { title: "R" }, groups: [{ title: "x", items: [{ path: "x.ts", status: "M" }] }] }, `--mode pr --base main --head feature --id ${id}`);
+  const notesFile = join(ROOT, id, "notes.json");
+  const server = await serve(repo, html);
+  const { page, errors } = await open(server.port);
+  const held = () => sh("git for-each-ref --format='%(objectname)' refs/guided-review/hold/feature", repo).trim();
+  const heldTs = (args) => {
+    try {
+      return { ok: true, out: execFileSync(process.execPath, [`${SKILL}/held.ts`, ...args], { cwd: repo, encoding: "utf8", stdio: "pipe" }) };
+    } catch (error) {
+      return { ok: false, out: `${error.stdout ?? ""}${error.stderr ?? ""}` };
+    }
+  };
+  /** writes a note the way a reviewer does: Alt+N on a line, type, Send */
+  const writeNote = async (key, line, text) => {
+    const path = key.slice(key.lastIndexOf(":") + 1);
+    const toggle = page.locator(`.row[data-path="${path}"] .diff-toggle`).first();
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    await until(() => model(page, "modified", key));
+    await page.evaluate(
+      ([key, line]) => {
+        const editor = window.monaco.editor.getEditors().find((candidate) => decodeURIComponent(candidate.getModel()?.uri.toString() ?? "") === `inmemory://review/modified/${key}`);
+        editor.setPosition({ lineNumber: line, column: 1 });
+        editor.focus();
+      },
+      [key, line],
+    );
+    await page.keyboard.press("Alt+KeyN");
+    // the new note's own box takes the focus - an open thread elsewhere has
+    // a reply box too, so it is found by focus, not by position
+    // (monaco's own input is a textarea too - this is the one in a note zone)
+    await until(() => page.evaluate(() => document.activeElement?.closest(".note-zone") != null && document.activeElement.tagName === "TEXTAREA"));
+    await page.keyboard.type(text);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await sleep(1200);
+  };
+
+  // a watching agent hears of the note, with what was being read and how to act
+  const watcher = spawn(process.execPath, [`${SKILL}/awaitNotes.ts`, "--notes", notesFile, "--once", "--timeout", "60"], { stdio: ["ignore", "pipe", "pipe"] });
+  let heard = "";
+  watcher.stdout.on("data", (chunk) => (heard += chunk));
+  await sleep(1500);
+
+  await until(async () => (await page.locator(".commit-bar .commit-step").count()) >= 3);
+  await page.locator(".commit-bar .commit-step", { hasText: first.slice(0, 7) }).click();
+  await sleep(1500);
+  await writeNote(`${first}:x.ts`, 4, "make x4 say hello");
+  const written = JSON.parse(readFileSync(notesFile, "utf8"))["x.ts"]?.[0]?.messages?.[0];
+  check(S, "a note records the commit it was written reading", written?.commit === first, JSON.stringify(written));
+  await until(() => heard.includes("new review note"));
+  check(S, "the agent is told what the note was reading", heard.includes(`(reading ${first.slice(0, 9)})`), heard.split("\n").slice(0, 3).join(" / "));
+  check(S, "...and how to make the edit it asks for", heard.includes("held.ts open") && heard.includes(html), heard.split("\n").slice(2, 4).join(" / "));
+  watcher.kill();
+
+  // the agent makes it, into the held edits against that commit
+  const dir = join(ROOT, "r-held");
+  const opened = heldTs(["open", "--html", html, "--repo", repo, "--notes", notesFile, "--path", "x.ts", "--line", "4", "--dir", dir]);
+  check(S, "held.ts opens the PR as of the commit the note was reading", opened.ok && readFileSync(join(dir, "x.ts"), "utf8") === nine("x", { 2: "x2 first" }), opened.out);
+  writeFileSync(join(dir, "x.ts"), nine("x", { 2: "x2 first", 4: "x4 hello" }));
+  const saved = heldTs(["save", "--dir", dir]);
+  check(S, "held.ts save holds the edit against that commit", saved.ok && held() !== "" && git(`rev-parse ${held()}^`) === first, saved.out);
+  check(S, "...moving no branch", git("rev-parse feature") === second);
+  const shown = await until(async () => (await page.locator(".commit-bar .commit-step", { hasText: "held" }).count()) === 1);
+  check(S, "...and the reviewer sees it held, on the commit bar", shown === true);
+  const rowNow = await until(async () => ((await model(page, "modified", `${first}:x.ts`))?.includes("x4 hello") ? true : undefined));
+  check(S, "...and in the row the note is on", rowNow === true);
+
+  // a note on another commit can't be acted on while edits are held elsewhere
+  await page.locator(".commit-bar .commit-step", { hasText: second.slice(0, 7) }).click();
+  await sleep(1500);
+  await writeNote(`${second}:x.ts`, 8, "and x8 too");
+  const refused = heldTs(["open", "--html", html, "--repo", repo, "--notes", notesFile, "--path", "x.ts", "--line", "8", "--dir", join(ROOT, "r-held2")]);
+  check(S, "a note on another commit, with edits held elsewhere, is refused, saying why", !refused.ok && refused.out.includes("already held"), refused.out);
+
+  // the checked-out PR read whole: the edit is the disk's
+  sh("git checkout -q feature", repo);
+  await page.goto(`http://127.0.0.1:${server.port}/`);
+  await page.waitForSelector(".row", { state: "attached" });
+  await sleep(1500);
+  await writeNote("x.ts", 2, "and x2 on disk");
+  const disk = heldTs(["open", "--html", html, "--repo", repo, "--notes", notesFile, "--path", "x.ts", "--line", "2", "--dir", join(ROOT, "r-held3")]);
+  check(S, "a note on the checked-out PR read whole is the disk's to change", disk.ok && disk.out.includes("saves to disk") && !existsSync(join(ROOT, "r-held3")), disk.out);
+  check(S, "no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
+  await page.close();
+  server.stop();
+};
+
+const scenarios = { R: scenarioR, Q: scenarioQ, P: scenarioP, O: scenarioO, N: scenarioN, M: scenarioM, L: scenarioL, K: scenarioK, J: scenarioJ, I: scenarioI, H: scenarioH, G: scenarioG, A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, E: scenarioE, F: scenarioF };
 try {
   browser = await chromium.launch();
 } catch (error) {

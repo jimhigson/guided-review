@@ -50,6 +50,7 @@ in the middle:
 | `ackNote.ts` | confirms you've seen a note, before you have an answer for it - turns "sent, waiting for an agent" into "the agent is on it" honestly |
 | `reply.ts` | answers a note in its own thread — what you did, or the one question you need answered |
 | `stackEdit.ts` | held edits, committing or amending them, and restacking the PRs above - git plumbing only, no checkout |
+| `held.ts` | for an agent acting on a note: makes the edit it asks for where the reviewer's own would go - `open` (disk, or a scratch worktree of the PR's held edits) then `save` |
 | `restack.ts` | for an agent asked to resolve a conflict the page hit: `status`, `resolve` (sets it up in a scratch worktree), `resolved` (records the fix) |
 
 Read the scripts' own `--help`/header comments rather than re-deriving what
@@ -876,8 +877,29 @@ implies it, and acking first would just be a wasted round trip.
 When a note arrives, one of two things happens:
 
 - **The ask is clear** ("move this into src/util/preact", "this should be a
-  const", "drop this file from the change") — *make the edit now*, then say so
-  in the thread:
+  const", "drop this file from the change") — *make the edit now*, **where
+  the reviewer's own edit from that row would go**, then say so in the
+  thread. A note remembers what the reviewer was reading when they wrote it;
+  from the PR the served checkout has checked out, read whole, their edit
+  goes to disk, and from anywhere else - another PR, or any commit - into
+  that PR's **held edits**, for them to commit or amend. Yours goes the same
+  way, so it lands where they will look for it and they still choose what
+  becomes a commit. `held.ts` works out which:
+
+  ```bash
+  node .claude/skills/guided-review/held.ts open --html <review.html> --repo <checkout> \
+    --notes <store>/notes.json --path src/ui/useStableValue.ts --line 7
+  ```
+
+  It either says the row saves to disk - edit the files in the checkout as
+  usual - or makes a scratch worktree holding the PR as of that commit, with
+  whatever is already held applied. Edit there with your usual tools, then
+  `held.ts save --dir <that worktree>` puts every change into the held edits,
+  exactly as a save from the page would, and removes the worktree. Never
+  check the branch out, commit, or amend yourself: committing what is held is
+  the reviewer's call, made from the commit bar. If edits are already held
+  against a different commit of that PR, `open` refuses - one place per PR -
+  so ask in the thread for them to be committed or amended first. Then reply:
 
   ```bash
   node .claude/skills/guided-review/reply.ts --notes <store>/notes.json \
@@ -1369,7 +1391,11 @@ diffs stay in `ui-monospace`.
   are held. Editing back to what the commit has lets the hold go. Under the
   commit bar, the **held bar** offers **New commit** (a message, then a commit
   inserted after that one), **Amend into** that commit, and **Discard** (kept
-  as a backup ref). The stack bar marks a PR with held edits.
+  as a backup ref). The stack bar marks a PR with held edits. Each message a
+  reviewer writes records the commit they were reading (`commit`: a sha, or
+  `held:<branch>`; absent for a PR read whole), so an agent acting on a note
+  makes its edit into the same place with `held.ts`, and `awaitNotes.ts`
+  says what each note was reading.
 - **Committing or amending moves the PR at once; the PRs above wait.** The
   PR's later commits are replayed onto the new one in memory (`merge-tree
   --write-tree`), and only if all of them replay cleanly does anything move -

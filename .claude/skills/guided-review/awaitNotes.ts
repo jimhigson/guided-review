@@ -24,12 +24,12 @@
  */
 
 import chokidar from "chokidar";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-type NoteMessage = { from?: string; text?: string };
+type NoteMessage = { from?: string; text?: string; commit?: string };
 type Note = { line?: number; text?: string; messages?: NoteMessage[] };
 type Notes = Record<string, Note[]>;
 
@@ -88,6 +88,31 @@ const flatten = (notes: Notes): Map<string, string> => {
   );
 };
 
+/** what the reviewer was reading when they last spoke on a thread - a
+    commit, or held edits - where the PR read whole says nothing */
+const readingAt = (notes: Notes, where: string): string => {
+  const colon = where.lastIndexOf(":");
+  const note = notes[where.slice(0, colon)]?.find((candidate) => candidate.line === Number(where.slice(colon + 1)));
+  const commit = [...(Array.isArray(note?.messages) ? note.messages : [])]
+    .reverse()
+    .find((message) => message.from !== "agent")?.commit;
+  return (
+    commit === undefined ? ""
+    : commit.startsWith("held:") ? ` (reading the edits held on ${commit.slice("held:".length)})`
+    : ` (reading ${commit.length > 12 ? commit.slice(0, 9) : commit})`
+  );
+};
+
+/** the page this review's store sits beside, for the commands to name */
+const pageOf = (): string | undefined => {
+  const storeDir = dirname(resolve(notesFile));
+  const id = basename(storeDir);
+  return readdirSync(dirname(storeDir))
+    .filter((name) => name.endsWith(".html"))
+    .map((name) => join(dirname(storeDir), name))
+    .find((path) => readFileSync(path, "utf8").includes(`"reviewId":"${id}"`));
+};
+
 /** what an earlier run already reported, if one has run on this review */
 const readAwaited = (): Map<string, string> | undefined => {
   if (!existsSync(awaitedFile)) {
@@ -125,13 +150,18 @@ const printFresh = (): void => {
   }
   console.log(`${fresh.length} new review note(s):`);
   for (const [where, text] of fresh.sort(([left], [right]) => (left < right ? -1 : 1))) {
-    console.log(`- ${where} — ${text}`);
+    console.log(`- ${where}${readingAt(notes, where)} — ${text}`);
   }
   // said with every batch, so whoever is handed these knows how to answer
   // without going back to the skill's docs
+  const skill = dirname(fileURLToPath(import.meta.url));
+  const html = pageOf();
   console.log(
-    `answer each in its own thread - the text is markdown (\`code\`, **bold**, lists, links, fenced blocks):\n` +
-      `  node ${join(dirname(fileURLToPath(import.meta.url)), "reply.ts")} --notes ${notesFile} --path <file> --line <n> --text '<markdown>'`,
+    "an edit a note asks for goes where the reviewer's own would from that row - into the PR's held edits, " +
+      "or to disk for the checked-out PR read whole; held.ts works out which:\n" +
+      `  node ${join(skill, "held.ts")} open --html ${html ?? "<review.html>"} --repo <checkout> --notes ${notesFile} --path <file> --line <n>\n` +
+      `answer each in its own thread - the text is markdown (\`code\`, **bold**, lists, links, fenced blocks):\n` +
+      `  node ${join(skill, "reply.ts")} --notes ${notesFile} --path <file> --line <n> --text '<markdown>'`,
   );
   if (once) {
     console.log("re-run awaitNotes.ts --once after handling these, or no further notes will reach you");
