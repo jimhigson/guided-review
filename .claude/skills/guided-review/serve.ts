@@ -1326,6 +1326,17 @@ const handlePost = (
   body: Record<string, unknown>,
   response: ServerResponse,
 ): void => {
+  // which branch the checkout is on is the page's, not any one review's
+  if (path === "/switch") {
+    try {
+      reviewPage.switchTo(String(body.branch ?? ""));
+      console.log(`  checked out ${String(body.branch)}`);
+      respondJson(response, 200, { checkedOut: reviewPage.checkedOutBranch() ?? null });
+    } catch (error) {
+      respondJson(response, 409, { error: (error as Error).message });
+    }
+    return;
+  }
   if (store === undefined) {
     respondJson(response, 404, { error: "unknown review" });
     return;
@@ -1390,16 +1401,6 @@ const handlePost = (
   }
   if (path === "/restack") {
     refusedOr(() => reviewPage.restack());
-    return;
-  }
-  if (path === "/switch") {
-    try {
-      reviewPage.switchTo(String(body.branch ?? ""));
-      console.log(`  checked out ${String(body.branch)}`);
-      respondJson(response, 200, { checkedOut: reviewPage.checkedOutBranch() ?? null });
-    } catch (error) {
-      respondJson(response, 409, { error: (error as Error).message });
-    }
     return;
   }
   if (path === "/notes") {

@@ -1261,6 +1261,24 @@ const scenarioN = async () => {
   check(S, "no page errors", unexpected.length === 0, unexpected.slice(0, 3).join(" | "));
   await page.close();
   server.stop();
+
+  // a page carrying several reviews - a whole stack - switches the same
+  const dir = fresh("stack-n");
+  writeFileSync(join(dir, "stack.json"), readFileSync(stackJson, "utf8"));
+  for (const [key, base] of [["auth", "main"], ["api", "auth"]]) {
+    const listed = sh(`${SKILL}/changedFiles.sh pr ${base} ${key}`, repo).trim().split("\n").map((line) => line.split("\t"));
+    writeFileSync(join(dir, `${key}.groups.json`), JSON.stringify({ meta: { title: key }, groups: [{ title: key, items: listed.map(([status, path]) => ({ path, status: status.charAt(0) })) }] }));
+  }
+  const stackHtml = join(ROOT, "n-stack.html");
+  sh(`node ${SKILL}/buildStack.ts --dir ${dir} --out ${stackHtml} --repo .`, repo);
+  const stackServer = await serve(repo, stackHtml);
+  const stacked = await open(stackServer.port);
+  const stackStep = (name) => stacked.page.locator(".stack-step", { has: stacked.page.locator(".stack-number", { hasText: new RegExp(`^${name}$`) }) });
+  await stackStep("auth").locator(".stack-switch").click();
+  const moved = await until(() => branch() === "auth");
+  check(S, "on a page of a whole stack, switch to checks the PR out too", moved !== undefined, `${branch()} | ${JSON.stringify(await toasts(stacked.page))}`);
+  await stacked.page.close();
+  stackServer.stop();
 };
 
 /* ---- O: editing any PR - held edits, commit or amend, rebase upstack ------- */
