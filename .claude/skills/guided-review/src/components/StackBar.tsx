@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import { prTip } from "../barTips.ts";
 import { checkoutStore, reloadForOwnChange } from "../checkoutSync.ts";
@@ -37,25 +37,85 @@ const switchCheckoutTo = async (branch: string): Promise<void> => {
   toast(`couldn't switch to ${branch}: ${said ?? "unknown error"}`, "warn");
 };
 
-/** beside each PR of a served stack: whether its branch is the checkout, or
-    a way to make it so */
-const CheckoutControl = ({ branch }: { branch: string | undefined }) => {
+/** beside a PR of a served stack whose branch is checked out: HEAD, as git
+    names it */
+const CheckoutPointer = ({ branch }: { branch: string | undefined }) => {
   const checkedOut = useStore(checkoutStore).branch;
+  if (server === undefined || branch === undefined || checkedOut !== branch) {
+    return null;
+  }
+  return (
+    <span class="head-pointer stack-checked-out" title={`HEAD - ${branch} is checked out here`}>
+      HEAD
+    </span>
+  );
+};
+
+/** the "…" at the right of a PR's pill: what can be done to the PR itself,
+    as against reading it. A popover, so it sits in the top layer - the bar
+    scrolls sideways, and would clip anything positioned inside it - and
+    closes itself on Escape or a click elsewhere */
+const PrMenu = ({ branch, title }: { branch: string | undefined; title: string }) => {
+  const checkedOut = useStore(checkoutStore).branch;
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
   if (server === undefined || branch === undefined) {
     return null;
   }
-  return checkedOut === branch ?
-      <span class="head-pointer stack-checked-out" title={`HEAD - ${branch} is checked out here`}>
-        HEAD
-      </span>
-    : <button
+  const isCheckedOut = checkedOut === branch;
+  const show = () => {
+    const at = button.current?.getBoundingClientRect();
+    const popover = menu.current;
+    if (at === undefined || popover === null) {
+      return;
+    }
+    popover.style.top = `${at.bottom + 4}px`;
+    popover.style.left = `${at.left}px`;
+    popover.showPopover();
+    // kept on screen at the bar's right-hand end
+    const overflow = popover.getBoundingClientRect().right - (window.innerWidth - 8);
+    if (overflow > 0) {
+      popover.style.left = `${Math.max(8, at.left - overflow)}px`;
+    }
+    popover.querySelector<HTMLButtonElement>("[role=menuitem]:not(:disabled)")?.focus();
+  };
+  return (
+    <>
+      <button
         type="button"
-        class="stack-switch"
-        title={`gh stack checkout ${branch}`}
-        onClick={() => void switchCheckoutTo(branch)}
+        class="stack-pr-more"
+        ref={button}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`More for ${title}`}
+        title="more"
+        onClick={() => (open ? menu.current?.hidePopover() : show())}
       >
-        switch to
-      </button>;
+        …
+      </button>
+      <div
+        class="stack-pr-menu"
+        role="menu"
+        popover="auto"
+        ref={menu}
+        onToggle={(event) => setOpen((event as ToggleEvent).newState === "open")}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          disabled={isCheckedOut}
+          title={isCheckedOut ? `${branch} is already checked out` : `gh stack checkout ${branch}`}
+          onClick={() => {
+            menu.current?.hidePopover();
+            void switchCheckoutTo(branch);
+          }}
+        >
+          Switch working copy to here
+        </button>
+      </div>
+    </>
+  );
 };
 
 export type StackBarProps = { state: ReadingState };
@@ -157,6 +217,7 @@ export const StackBar = ({ state }: StackBarProps) => {
                 <span class="stack-number">{review.label}</span>
                 <span class="stack-title">{review.title}</span>
               </span>
+              <PrMenu branch={review.head} title={review.title} />
             </span>
           : review.block !== undefined ?
             <span class="stack-pr-pill">
@@ -170,6 +231,7 @@ export const StackBar = ({ state }: StackBarProps) => {
                 <span class="stack-number">{review.label}</span>
                 <span class="stack-title">{review.title}</span>
               </button>
+              <PrMenu branch={review.head} title={review.title} />
             </span>
           : // a layer of a local stack has no forge page to link to, so it
             // stands as plain text rather than a link back to this page
@@ -189,7 +251,7 @@ export const StackBar = ({ state }: StackBarProps) => {
                   "review requested from its agent, not yet contributed"
                 : "no review in this page"
               }`;
-              return review.url === "" ?
+              const entry = review.url === "" ?
                   <span class="stack-pr is-unreviewed" title={describe}>
                     {inside}
                   </span>
@@ -202,6 +264,12 @@ export const StackBar = ({ state }: StackBarProps) => {
                   >
                     {inside}
                   </a>;
+              return (
+                <>
+                  {entry}
+                  <PrMenu branch={review.head} title={review.title} />
+                </>
+              );
             })()
           }
           {holds.some((held) => held.branch === review.head) && (
@@ -209,7 +277,7 @@ export const StackBar = ({ state }: StackBarProps) => {
               held
             </span>
           )}
-          <CheckoutControl branch={review.head} />
+          <CheckoutPointer branch={review.head} />
         </span>
       ))}
       {stale.length > 0 && (

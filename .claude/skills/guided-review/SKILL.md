@@ -329,8 +329,9 @@ reader says so. Staged changes, and the every-PR review read whole, stay
 read-only. Notes, replies and ticks work in every review — each has its own
 `notes.json`/`ticks.json` under its own id, so `awaitNotes.ts`/`reply.ts`
 point at whichever review's store the note belongs to. Beside each PR of a
-served stack the bar says which is **checked out**, or offers **switch to**,
-which runs `gh stack checkout <branch>` in the served checkout and reloads
+served stack the bar says which is **checked out**, and each PR's pill ends
+in a **…** menu (a popover, for actions on the PR itself rather than on
+reading it) whose **Switch working copy to here** runs `gh stack checkout <branch>` in the served checkout and reloads
 (git's refusal, uncommitted changes in the way say, comes back as a toast).
 A switch made anywhere else - a terminal, an agent - is noticed too: each
 poll says which branch is checked out (not while git is mid-rebase or
@@ -1374,7 +1375,7 @@ diffs stay in `ui-monospace`.
   editor, a note, or any field. Over a focused button it ticks instead of
   pressing the button. The row's tick box says so in its tooltip.
 - **HEAD is pointed at.** The PR whose branch is checked out wears a HEAD
-  chip in the stack bar (in place of "switch to"), and the commit HEAD is at
+  chip in the stack bar, and the commit HEAD is at
   wears one in the commit bar. Both follow every poll (`checkoutStore`), so
   a new commit moves it at once; a switch of branch reloads the page.
 - **Hovering a PR or a commit says how big it is.** The stack bar's PRs

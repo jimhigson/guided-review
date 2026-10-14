@@ -2389,26 +2389,57 @@ a.also-place:hover { text-decoration: underline; }
   white-space: nowrap;
 }
 
-/* beside a PR: the checkout is on it, or a way to put it there */
-.stack-switch {
+/* the "…" at the right of a PR: a menu of what can be done to the PR */
+.stack-pr-more {
   flex: none;
+  align-self: stretch;
+  font-family: var(--body);
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  padding: 0 0.4rem;
+  cursor: pointer;
+}
+
+.stack-pr-more:hover,
+.stack-pr-more[aria-expanded="true"] { color: var(--pr); background: var(--accent-soft); }
+.stack-pr-pill.is-current .stack-pr-more { color: var(--pr-ink); border-left-color: var(--pr-edge); }
+.stack-pr.is-unreviewed + .stack-pr-more { border-left: 0; }
+
+.stack-pr-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 12rem;
+  padding: 0.25rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+}
+
+.stack-pr-menu [role="menuitem"] {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--body);
   font-size: 0.85rem;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
   white-space: nowrap;
 }
 
-.stack-switch {
-  font-family: var(--body);
-  color: var(--pr);
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: var(--pr-edge);
-  text-underline-offset: 2px;
-}
-
-.stack-switch:hover { text-decoration-color: currentcolor; }
+.stack-pr-menu [role="menuitem"]:hover:not(:disabled),
+.stack-pr-menu [role="menuitem"]:focus-visible { background: var(--accent-soft); outline: none; }
+.stack-pr-menu [role="menuitem"]:disabled { color: var(--ink-faint); cursor: default; }
 
 
 .stack-pr-pill {

@@ -1240,19 +1240,35 @@ const scenarioN = async () => {
   const branch = () => sh("git rev-parse --abbrev-ref HEAD", repo).trim();
   const step = (name) => page.locator(".stack-step", { has: page.locator(".stack-number", { hasText: new RegExp(`^${name}$`) }) });
 
+  // "switch working copy to here" lives in the "…" menu at the right of each PR's pill
+  const switchItem = (where) => where.locator(".stack-pr-menu [role=menuitem]", { hasText: "Switch working copy to here" });
+  const switchVia = async (where) => {
+    await where.locator(".stack-pr-more").click();
+    await switchItem(where).click();
+  };
   check(S, "the checked-out PR says so", (await step("api").locator(".stack-checked-out").count()) === 1);
-  check(S, "every other PR offers to switch to it", (await step("auth").locator(".stack-switch").count()) === 1 && (await step("ui").locator(".stack-switch").count()) === 1);
+  const menus = [await page.locator(".stack-step .stack-pr-more").count(), await page.locator(".stack-pr-pill > .stack-pr-more + .stack-pr-menu:last-child").count(), await page.locator(".stack-pr-pill").count()];
+  check(S, "every PR has a menu, at the right of its pill", (await page.locator(".stack-step .stack-pr-more").count()) === 3 && (await page.locator(".stack-pr-pill > .stack-pr-more + .stack-pr-menu:last-child").count()) === (await page.locator(".stack-pr-pill").count()), JSON.stringify(menus));
+  check(S, "the menu is closed until asked for", !(await step("ui").locator(".stack-pr-menu").isVisible()));
+  await step("ui").locator(".stack-pr-more").click();
+  check(S, "...and opens on a click, offering to switch the working copy there", await switchItem(step("ui")).isVisible() && await switchItem(step("ui")).isEnabled());
+  await page.keyboard.press("Escape");
+  await sleep(100);
+  check(S, "...and closes on Escape", !(await step("ui").locator(".stack-pr-menu").isVisible()));
+  await step("api").locator(".stack-pr-more").click();
+  check(S, "the checked-out PR's menu can't switch to it again", await switchItem(step("api")).isDisabled());
+  await page.keyboard.press("Escape");
 
-  await step("ui").locator(".stack-switch").click();
+  await switchVia(step("ui"));
   const switched = await until(() => branch() === "ui");
   check(S, "switch to checks the PR's branch out", switched !== undefined, branch());
   await page.waitForSelector(".stack-checked-out");
   await sleep(500);
-  check(S, "...and the page says it is checked out now", (await step("ui").locator(".stack-checked-out").count()) === 1 && (await step("api").locator(".stack-switch").count()) === 1);
+  check(S, "...and the page says it is checked out now", (await step("ui").locator(".stack-checked-out").count()) === 1 && (await step("api").locator(".stack-checked-out").count()) === 0);
 
   // gh stack refusing - a change in the way - says why, and moves nothing
   writeFileSync(join(repo, "src/api/routes.ts"), "// in the way\n");
-  await step("auth").locator(".stack-switch").click();
+  await switchVia(step("auth"));
   const said = await until(async () => (await toasts(page)).find((text) => text.includes("couldn't switch to auth")));
   check(S, "a switch git refuses says so", said !== undefined, JSON.stringify(await toasts(page)));
   check(S, "...and leaves the checkout where it was", branch() === "ui", branch());
@@ -1275,7 +1291,8 @@ const scenarioN = async () => {
   const stackServer = await serve(repo, stackHtml);
   const stacked = await open(stackServer.port);
   const stackStep = (name) => stacked.page.locator(".stack-step", { has: stacked.page.locator(".stack-number", { hasText: new RegExp(`^${name}$`) }) });
-  await stackStep("auth").locator(".stack-switch").click();
+  await stackStep("auth").locator(".stack-pr-more").click();
+  await stackStep("auth").locator(".stack-pr-menu [role=menuitem]").click();
   const moved = await until(() => branch() === "auth");
   check(S, "on a page of a whole stack, switch to checks the PR out too", moved !== undefined, `${branch()} | ${JSON.stringify(await toasts(stacked.page))}`);
 

@@ -23,7 +23,7 @@ export const checkoutStore = makeStore<{ branch: string | null; head: string | n
     again every poll */
 let told = "";
 
-/** the page is reloading for something it did itself - "switch to", say - so
+/** the page is reloading for something it did itself - switching the working copy, say - so
     a poll seeing the same change must not reload it a second time */
 let reloading = false;
 
