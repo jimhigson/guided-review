@@ -68,7 +68,9 @@ const git = (...args: string[]): string =>
   execFileSync("git", args, { encoding: "utf8", maxBuffer: 16 * 1_024 * 1_024 });
 
 const printStack = (current: string, entries: StackEntry[], what: string): void => {
-  console.log(JSON.stringify({ current, entries }, null, 2));
+  // how it was resolved, so a serving page can resolve it again and follow
+  // the stack as PRs join it or leave
+  console.log(JSON.stringify({ current, entries, resolvedWith: [target] }, null, 2));
   console.error(
     entries.length > 1 ?
       `${what} sits in a stack of ${entries.length}`

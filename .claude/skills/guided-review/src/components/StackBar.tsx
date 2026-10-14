@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "preact/hooks";
 
 import { prTip } from "../barTips.ts";
+import { checkoutStore, reloadForOwnChange } from "../checkoutSync.ts";
 import { restack } from "../heldActions.ts";
 import { staleStore } from "../heldSync.ts";
 import { liveEditors } from "../liveEditors.ts";
@@ -29,7 +30,7 @@ const switchCheckoutTo = async (branch: string): Promise<void> => {
     body: JSON.stringify({ branch }),
   }).catch(() => undefined);
   if (response?.ok === true) {
-    window.location.reload();
+    reloadForOwnChange();
     return;
   }
   const said = response === undefined ? "the review server didn't answer" : ((await response.json()) as { error?: string }).error;
@@ -39,12 +40,13 @@ const switchCheckoutTo = async (branch: string): Promise<void> => {
 /** beside each PR of a served stack: whether its branch is the checkout, or
     a way to make it so */
 const CheckoutControl = ({ branch }: { branch: string | undefined }) => {
+  const checkedOut = useStore(checkoutStore).branch;
   if (server === undefined || branch === undefined) {
     return null;
   }
-  return server.checkedOut === branch ?
-      <span class="stack-checked-out" title={`${branch} is checked out here`}>
-        checked out
+  return checkedOut === branch ?
+      <span class="head-pointer stack-checked-out" title={`HEAD - ${branch} is checked out here`}>
+        HEAD
       </span>
     : <button
         type="button"

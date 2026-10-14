@@ -276,7 +276,18 @@ stack, in either of two shapes:
   the local branch and nothing is fetched.
   **Contributing is: write your PR's groups json into the directory and
   re-run the build** — the serving process re-reads the html and creates the
-  new review's store without restarting, so the reviewer just reloads.
+  new review's store without restarting, and an open page sees the new
+  review and reloads itself.
+
+  **The stack is followed while it is served.** `resolveStack.ts` records how
+  it resolved the stack (`resolvedWith` in `stack.json`), and the server
+  resolves it again the same way - every 10s for a `gh stack`, every minute
+  for a stack of PRs, which asks the forge. A PR joining it, leaving it or
+  moving in it rewrites `stack.json` and rebuilds the page; open pages reload
+  (or ask, with an edit unsaved), and the server's output names a PR that
+  joined with no review yet - offer to author it, or leave instructions for
+  its agent, as above. A `stack.json` from before `resolvedWith` isn't
+  followed; resolve it again to start.
 
 **Admit what you have not read.** The agent starting a stack review has
 usually only studied its own PR. Say so, and offer the two ways to fill the
@@ -1362,6 +1373,10 @@ diffs stay in `ui-monospace`.
   Space again unticks it. It doesn't while you're typing into a Monaco
   editor, a note, or any field. Over a focused button it ticks instead of
   pressing the button. The row's tick box says so in its tooltip.
+- **HEAD is pointed at.** The PR whose branch is checked out wears a HEAD
+  chip in the stack bar (in place of "switch to"), and the commit HEAD is at
+  wears one in the commit bar. Both follow every poll (`checkoutStore`), so
+  a new commit moves it at once; a switch of branch reloads the page.
 - **Hovering a PR or a commit says how big it is.** The stack bar's PRs
   (and "all") give their place, commits, files and lines added and removed;
   the commit bar's commits give their place in the PR, files and lines; a

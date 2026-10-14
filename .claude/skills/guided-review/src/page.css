@@ -2372,8 +2372,25 @@ a.also-place:hover { text-decoration: underline; }
    button/link may not contain interactive content) - this wrapper draws the
    one pill both appear to share, so the border/background isn't duplicated
    and clicking the pill's own edges still lands on one of its two children */
+/* HEAD, as git names it: the PR whose branch is checked out, and the
+   commit it is at. A solid chip, so it is found at a glance in either bar */
+.head-pointer {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 3px;
+  padding: 0 0.3em;
+  margin-left: 0.35em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 /* beside a PR: the checkout is on it, or a way to put it there */
-.stack-switch, .stack-checked-out {
+.stack-switch {
   flex: none;
   font-size: 0.85rem;
   white-space: nowrap;
@@ -2393,7 +2410,6 @@ a.also-place:hover { text-decoration: underline; }
 
 .stack-switch:hover { text-decoration-color: currentcolor; }
 
-.stack-checked-out { color: var(--ink-faint); }
 
 .stack-pr-pill {
   display: inline-flex;

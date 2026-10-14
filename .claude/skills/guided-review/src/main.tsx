@@ -63,6 +63,8 @@ type ServerState = {
   stale?: string[] | null;
   /** which branch is checked out now - null while git is mid-rebase */
   checkout?: CheckoutNow | null;
+  /** the reviews the page carries now, as the server reads them */
+  stack?: string | null;
 };
 
 const agentSaid = (state: ServerState) =>
@@ -135,7 +137,7 @@ const pollState = async (): Promise<void> => {
   await followScope(state.scope);
   await followStops(state.stops);
   await followHolds(state.holds, state.stale);
-  followCheckout(state.checkout);
+  followCheckout(state.checkout, state.stack);
 };
 
 const mountApp = (root: HTMLElement, initialTicks: Set<string>): void => {

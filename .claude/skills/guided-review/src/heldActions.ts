@@ -2,6 +2,7 @@
    each asks the server, then reloads - the branches have moved, and the
    page has been rebuilt to show them where they are now */
 
+import { reloadForOwnChange } from "./checkoutSync.ts";
 import { liveEditors } from "./liveEditors.ts";
 import { reviewId, server } from "./payload.ts";
 import { toast } from "./stores.ts";
@@ -27,7 +28,7 @@ const ask = async (path: string, body: unknown, doing: string): Promise<void> =>
     response === undefined ? { error: "the review server didn't answer" }
     : ((await response.json().catch(() => ({}))) as { error?: string; conflict?: string });
   if (response?.ok === true && result.conflict === undefined) {
-    window.location.reload();
+    reloadForOwnChange();
     return;
   }
   toast(

@@ -4,6 +4,8 @@ import { commitTip, prTip } from "../barTips.ts";
 import { activeReview, commits, selectedCommit, stops } from "../payload.ts";
 import { isHeldKey, stagedRef, uncommittedRef, workingRef } from "../ReviewPayload.ts";
 import { selectCommitAndRemount } from "../reviewSwitch.ts";
+import { checkoutStore } from "../checkoutSync.ts";
+import { useStore } from "../stores.ts";
 import { keepCurrentInView } from "./barScroll.ts";
 
 /**
@@ -15,6 +17,7 @@ import { keepCurrentInView } from "./barScroll.ts";
  */
 export const CommitBar = () => {
   const bar = useRef<HTMLElement>(null);
+  const head = useStore(checkoutStore).head;
   useEffect(() => keepCurrentInView(bar.current), []);
 
   // a served review that follows its branch always has one: even a single
@@ -54,6 +57,11 @@ export const CommitBar = () => {
             {commit.short}
           </span>
           {!local(commit.sha) && <span class="commit-subject">{commit.subject}</span>}
+          {commit.sha === head && (
+            <span class="head-pointer" title="HEAD - the commit checked out here">
+              HEAD
+            </span>
+          )}
         </button>
       ))}
     </nav>

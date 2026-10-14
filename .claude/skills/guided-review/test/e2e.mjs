@@ -114,7 +114,8 @@ const open = async (port, scheme = "dark") => {
   return { page, errors };
 };
 
-const toasts = (page) => page.locator(".toast").allInnerTexts();
+// a page can be reloading when asked - reloading is how it takes some changes in
+const toasts = (page) => page.locator(".toast").allInnerTexts().catch(() => []);
 
 const rowInfo = (page, path) =>
   page.evaluate((path) => {
@@ -1286,6 +1287,16 @@ const scenarioN = async () => {
   check(S, "a switch made in a terminal reloads the page", reloaded === true);
   await stacked.page.waitForSelector(".stack-checked-out");
   check(S, "...which then marks that PR checked out", (await stackStep("api").locator(".stack-checked-out").count()) === 1);
+  check(S, "the checked-out PR wears a HEAD pointer", (await stackStep("api").locator(".head-pointer").innerText().catch(() => "")) === "HEAD");
+
+  // a PR joining the stack under the open page joins its bar
+  sh("git checkout -q ui", repo);
+  await sleep(2500);
+  writeFileSync(join(repo, "EXTRA.md"), "more\n");
+  sh("gh stack add -Am 'extra work' extra", repo);
+  const joined = await until(async () => (await stacked.page.locator(".stack-step .stack-number", { hasText: /^extra$/ }).count().catch(() => 0)) === 1, 45_000);
+  check(S, "a PR added to the stack appears in the open page's bar", joined === true, stackServer.log().split("\n").slice(-4).join(" / "));
+  check(S, "...and the agent is told it has no review yet", stackServer.log().includes("extra joined it (no review yet"), stackServer.log().split("\n").slice(-3).join(" / "));
   await stacked.page.close();
   stackServer.stop();
 };
@@ -1558,6 +1569,11 @@ const scenarioP = async () => {
     await sleep(1800);
   };
 
+  const headStep = async () =>
+    (await page.locator(".commit-bar .commit-step", { has: page.locator(".head-pointer") }).allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
+  const atHead = await until(async () => ((await headStep()).length === 1 ? await headStep() : undefined));
+  check(S, "the commit bar points HEAD at the commit checked out", atHead?.[0]?.includes("second") === true, JSON.stringify(atHead ?? (await headStep())));
+
   // the checkout's own PR, read whole: still the disk
   await typeInto("y.ts", " on disk", 1);
   check(S, "the checked-out PR read whole still saves to disk", readFileSync(join(repo, "y.ts"), "utf8").startsWith("y1 on disk") && held() === "");
@@ -1596,6 +1612,8 @@ const scenarioP = async () => {
   await sleep(2500);
   const heldBar = (await page.locator(".held-bar").innerText().catch(() => "")).replace(/\s+/g, " ");
   check(S, "held edits outlast the branch moving on", heldBar.includes(first.slice(0, 7)), heldBar);
+  const movedHead = await until(async () => ((await headStep())[0]?.includes("third") ? await headStep() : undefined));
+  check(S, "...and HEAD's pointer moves to the new commit", movedHead !== undefined, JSON.stringify(await headStep()));
   await page.locator("input.held-message").fill("between first and second");
   await Promise.all([page.waitForEvent("load", { timeout: 60_000 }), page.locator(".held-action", { hasText: "New commit" }).click()]);
   await page.waitForSelector(".row", { state: "attached" });

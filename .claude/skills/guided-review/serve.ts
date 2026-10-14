@@ -558,11 +558,107 @@ class ReviewPage {
   /** what the checkout is now, for an open page to notice a switch made
       outside it - none while git is part-way through a rebase or merge, as
       the detached steps of one are no switch */
-  checkoutNow(): { branch: string | null; editableReviewId: string | null } | null {
+  checkoutNow(): { branch: string | null; head: string | null; editableReviewId: string | null } | null {
     if (this.#midOperation()) {
       return null;
     }
-    return { branch: this.checkedOutBranch() ?? null, editableReviewId: this.editableReviewId() ?? null };
+    return {
+      branch: this.checkedOutBranch() ?? null,
+      head: gitOut(this.repo, "rev-parse", "HEAD") ?? null,
+      editableReviewId: this.editableReviewId() ?? null,
+    };
+  }
+
+  /** the reviews the page carries, in order - what an open page compares
+      with its own, to know the stack has changed under it */
+  stackNow(): string {
+    this.#refreshShell();
+    return this.#reviews.map((review) => review.key ?? review.label).join(" ");
+  }
+
+  /** the stack.json this page was built from, where it was built from one */
+  #stackFile(): string | undefined {
+    const recipe = this.#recipe;
+    if (recipe === undefined) {
+      return undefined;
+    }
+    const at = recipe.args.indexOf(recipe.kind === "stack" ? "--dir" : "--stack");
+    const named = at === -1 ? undefined : recipe.args[at + 1];
+    return named === undefined ? undefined : recipe.kind === "stack" ? join(named, "stack.json") : named;
+  }
+
+  #following = false;
+
+  /**
+   * the stack resolved again, as it was first resolved (resolveStack.ts with
+   * the arguments it recorded): a PR that joined it, left it or moved in it
+   * rewrites stack.json and rebuilds the page, which open pages then load.
+   * A stack.json from before resolveStack.ts recorded how it was made can't
+   * be followed, and isn't
+   */
+  async followStack(): Promise<void> {
+    const file = this.#stackFile();
+    if (this.#following || file === undefined || !existsSync(file) || this.#midOperation()) {
+      return;
+    }
+    const before = JSON.parse(readFileSync(file, "utf8")) as {
+      entries: { key: string; head: string; base: string; number?: number }[];
+      resolvedWith?: string[];
+    };
+    if (before.resolvedWith === undefined) {
+      return;
+    }
+    this.#following = true;
+    try {
+      const resolved = await new Promise<string | undefined>((done) => {
+        const child = spawn(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "resolveStack.ts"), ...(before.resolvedWith ?? [])], {
+          cwd: this.repo,
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        let out = "";
+        child.stdout.on("data", (chunk: Buffer) => {
+          out += chunk.toString("utf8");
+        });
+        child.on("close", (code) => done(code === 0 ? out : undefined));
+      });
+      if (resolved === undefined) {
+        // offline, or gh unavailable: the stack as it was is still a stack
+        return;
+      }
+      const after = JSON.parse(resolved) as typeof before;
+      const shape = (stack: typeof before): string =>
+        JSON.stringify(stack.entries.map((entry) => [entry.key, entry.head, entry.base, entry.number ?? null]));
+      if (after.entries.length < 2 || shape(after) === shape(before)) {
+        return;
+      }
+      const keys = (stack: typeof before): string[] => stack.entries.map((entry) => entry.key);
+      const joined = keys(after).filter((key) => !keys(before).includes(key));
+      const left = keys(before).filter((key) => !keys(after).includes(key));
+      writeFileSync(file, `${JSON.stringify(after, null, 2)}\n`, "utf8");
+      console.log(
+        `  the stack changed: ${[
+          ...joined.map((key) => `${key} joined it (no review yet - author ${join(dirname(file), `${key}.groups.json`)} to add one)`),
+          ...left.map((key) => `${key} left it`),
+          ...(joined.length === 0 && left.length === 0 ? ["its PRs moved"] : []),
+        ].join("; ")} - rebuilding the page`,
+      );
+      this.rebuildNow();
+    } catch (error) {
+      console.log(`  following the stack failed: ${(error as Error).message}`);
+    } finally {
+      this.#following = false;
+    }
+  }
+
+  /** how often to resolve the stack again: a local gh stack is cheap to
+      read; a stack of PRs is asked of the forge, so less often */
+  followEveryMs(): number | undefined {
+    const file = this.#stackFile();
+    if (file === undefined || !existsSync(file)) {
+      return undefined;
+    }
+    const resolvedWith = (JSON.parse(readFileSync(file, "utf8")) as { resolvedWith?: string[] }).resolvedWith;
+    return resolvedWith === undefined ? undefined : resolvedWith.includes("--stack") ? 10_000 : 60_000;
   }
 
   /** the branch the served checkout is on, or undefined when it is on none */
@@ -1456,6 +1552,8 @@ const handlePost = (
       holds: reviewPage.holds(),
       // which branch is checked out, and so which review edits it
       checkout: reviewPage.checkoutNow(),
+      // the reviews the page carries now - a PR joining the stack adds one
+      stack: reviewPage.stackNow(),
       stale: reviewPage.stale(),
     });
     return;
@@ -1569,6 +1667,12 @@ const server = createServer((request, response) => {
     handlePost(reviewPage, path, store, body, response);
   });
 });
+
+// the stack is followed as PRs join it or leave
+const followEvery = reviewPage.followEveryMs();
+if (followEvery !== undefined) {
+  setInterval(() => void reviewPage.followStack(), followEvery).unref();
+}
 
 server.listen(options.port, "127.0.0.1", () => {
   const address = server.address();

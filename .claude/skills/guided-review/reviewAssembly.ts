@@ -1221,6 +1221,10 @@ export type ResolvedStack = {
   /** the `key` of the layer the stack was resolved from */
   current: string;
   entries: StackEntry[];
+  /** resolveStack.ts's own arguments - `--stack`, or the PR it started from -
+      so the server can resolve the stack again while the page is served.
+      Absent from a stack.json written before this */
+  resolvedWith?: string[];
 };
 
 export const readResolvedStack = (path: string): ResolvedStack =>
