@@ -91,7 +91,7 @@ export const placeHref = (review: ShellReview, sha: string | undefined, path: st
 
 /** whether this page can read that commit without leaving the review it is
     on - the every-PR review read commit by commit carries every PR's commits */
-const commitHere = (sha: string): boolean =>
+export const commitHere = (sha: string): boolean =>
   commits.some((commit) => commit.sha === sha) || stops.some((stop) => stop.key === sha);
 
 /**

@@ -161,7 +161,9 @@ const printFresh = (): void => {
       "or to disk for the checked-out PR read whole; held.ts works out which:\n" +
       `  node ${join(skill, "held.ts")} open --html ${html ?? "<review.html>"} --repo <checkout> --notes ${notesFile} --path <file> --line <n>\n` +
       `answer each in its own thread - the text is markdown (\`code\`, **bold**, lists, links, fenced blocks):\n` +
-      `  node ${join(skill, "reply.ts")} --notes ${notesFile} --path <file> --line <n> --text '<markdown>'`,
+      `  node ${join(skill, "reply.ts")} --notes ${notesFile} --path <file> --line <n> --text '<markdown>'\n` +
+      "having edited files for it, name every one - the reply lists them as links to each in the review:\n" +
+      `  ... --html ${html ?? "<review.html>"} --repo <checkout> --edited <file> [--edited <file> ...]`,
   );
   if (once) {
     console.log("re-run awaitNotes.ts --once after handling these, or no further notes will reach you");

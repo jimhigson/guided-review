@@ -27,11 +27,12 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
 
+import { editPlaceOf, readingOf, readShell, reviewOfNotes } from "./editPlace.ts";
 import { fileAt, heldOn, refValue, saveToHold } from "./stackEdit.ts";
 
 const { positionals, values } = parseArgs({
@@ -65,9 +66,6 @@ type Opened = { repo: string; branch: string; anchor: string; from: string };
 
 const recordFile = (dir: string): string => join(resolve(dir, git(dir, "rev-parse", "--git-dir").trim()), "guided-review-held.json");
 
-type ShellReview = { key: string; reviewId?: string; head?: string; aggregate?: boolean };
-type Shell = { reviews: ShellReview[]; edits?: { commits: { sha: string; review: string }[] } };
-
 const open = (): void => {
   const { html, repo: repoArg, notes, path, line } = values;
   if (html === undefined || repoArg === undefined || notes === undefined || path === undefined || line === undefined) {
@@ -75,43 +73,19 @@ const open = (): void => {
     return;
   }
   const repo = resolve(repoArg);
-  const shellText = /<script type="application\/json" id="shell">([\s\S]*?)<\/script>/.exec(readFileSync(html, "utf8"))?.[1];
-  const shell = JSON.parse(shellText ?? "{}") as Shell;
-  const review = shell.reviews.find((candidate) => candidate.reviewId === basename(dirname(resolve(notes))));
-  if (review === undefined) {
-    throw new Error(`${notes} isn't the store of a review in ${html}`);
-  }
-  const thread = (JSON.parse(readFileSync(notes, "utf8")) as Record<string, { line?: number; messages?: { from?: string; commit?: string }[] }[]>)[path]?.find(
-    (note) => note.line === Number(line),
-  );
-  if (thread === undefined) {
-    throw new Error(`there is no note on ${path}:${line}`);
-  }
-  // the latest thing the reviewer said is where they are now
-  const reading = [...(thread.messages ?? [])].reverse().find((message) => message.from !== "agent")?.commit;
-
-  const checkedOut = git(repo, "rev-parse", "--abbrev-ref", "HEAD").trim();
-  const onDisk = reading === undefined || reading === "uncommitted" || reading === "working";
-  if (onDisk && (review.head === undefined || review.head === checkedOut)) {
+  const shell = readShell(html);
+  const review = reviewOfNotes(shell, notes, html);
+  const reading = readingOf(notes, path, Number(line));
+  const place = editPlaceOf(repo, shell, review, reading);
+  if (place.kind === "disk") {
     console.log(`this row saves to disk: edit ${join(repo, path)} in the checkout, as usual - the page follows it`);
     return;
   }
-  if (reading === "staged") {
-    throw new Error("the note was written reading what is staged, which isn't edited from the page - edit under working, on disk");
-  }
-
-  const branch =
-    reading?.startsWith("held:") === true ? reading.slice("held:".length)
-    : reading !== undefined && !onDisk ?
-      (shell.reviews.find((candidate) => candidate.key === shell.edits?.commits.find((commit) => commit.sha === reading)?.review)?.head ?? review.head)
-    : review.head;
-  if (branch === undefined || review.aggregate === true && reading === undefined) {
-    throw new Error("the note was written reading every PR at once - ask the reviewer which PR the edit belongs in");
-  }
+  const { branch } = place;
   const held = heldOn(repo, branch);
   const anchor =
     reading?.startsWith("held:") === true ? held?.anchor
-    : reading !== undefined && !onDisk ? reading
+    : place.reading !== undefined ? place.reading
     : refValue(repo, `refs/heads/${branch}`);
   if (anchor === undefined) {
     throw new Error(`nothing to edit: ${reading?.startsWith("held:") === true ? `no edits are held on ${branch} any more` : `${branch} is not a branch here`}`);
@@ -168,7 +142,7 @@ const save = (): void => {
   console.log(
     changed.length === 0 ?
       "nothing changed - nothing held"
-    : `held ${changed.length} file(s) on ${opened.branch} after ${opened.anchor.slice(0, 9)}: ${changed.map((entry) => entry.path).join(", ")} - the reviewer sees them on the commit bar now; say so in the thread`,
+    : `held ${changed.length} file(s) on ${opened.branch} after ${opened.anchor.slice(0, 9)}: ${changed.map((entry) => entry.path).join(", ")} - the reviewer sees them on the commit bar now; say so in the thread, naming each with reply.ts --edited`,
   );
 };
 

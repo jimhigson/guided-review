@@ -1777,6 +1777,20 @@ const scenarioR = async () => {
   const rowNow = await until(async () => ((await model(page, "modified", `${first}:x.ts`))?.includes("x4 hello") ? true : undefined));
   check(S, "...and in the row the note is on", rowNow === true);
 
+  // the agent's reply names the files it edited, each a link to it where the edit landed
+  const replyTs = (args) => execFileSync(process.execPath, [`${SKILL}/reply.ts`, "--notes", notesFile, "--html", html, "--repo", repo, ...args], { cwd: repo, encoding: "utf8", stdio: "pipe" });
+  replyTs(["--path", "x.ts", "--line", "4", "--text", "x4 says hello now", "--edited", "x.ts"]);
+  const answer = JSON.parse(readFileSync(notesFile, "utf8"))["x.ts"].find((note) => note.line === 4).messages.at(-1).text;
+  check(S, "a reply naming edited files lists each as a link to it in the held edits", answer.includes("**Edited**") && answer.includes("[`x.ts`](?review=") && answer.includes("commit=held%3Afeature&file=x.ts"), answer);
+  const fileLink = page.locator(".note-zone .md-file-link", { hasText: "x.ts" });
+  const linked = await until(async () => ((await fileLink.count()) > 0 ? true : undefined));
+  check(S, "...which the page shows as a link to the file in the review", linked === true);
+  await page.evaluate(() => (window.__beforeLink = true));
+  await fileLink.first().click();
+  const landed = await until(async () => ((await page.locator(".commit-bar .commit-step.is-current", { hasText: "held" }).count()) === 1 ? true : undefined));
+  check(S, "...and following it reads the file on the held edits' stop", landed === true && new URL(page.url()).searchParams.get("commit") === "held:feature" && new URL(page.url()).searchParams.get("file") === "x.ts", page.url());
+  check(S, "...in place, without reloading the page", await page.evaluate(() => window.__beforeLink === true));
+
   // a note on another commit can't be acted on while edits are held elsewhere
   await page.locator(".commit-bar .commit-step", { hasText: second.slice(0, 7) }).click();
   await sleep(1500);
@@ -1792,6 +1806,9 @@ const scenarioR = async () => {
   await writeNote("x.ts", 2, "and x2 on disk");
   const disk = heldTs(["open", "--html", html, "--repo", repo, "--notes", notesFile, "--path", "x.ts", "--line", "2", "--dir", join(ROOT, "r-held3")]);
   check(S, "a note on the checked-out PR read whole is the disk's to change", disk.ok && disk.out.includes("saves to disk") && !existsSync(join(ROOT, "r-held3")), disk.out);
+  replyTs(["--path", "x.ts", "--line", "2", "--text", "done", "--edited", "x.ts", "--edited", "y.ts"]);
+  const diskAnswer = JSON.parse(readFileSync(notesFile, "utf8"))["x.ts"].find((note) => note.line === 2).messages.at(-1).text;
+  check(S, "an edit made on disk is linked to the PR read whole, one link per file", !diskAnswer.includes("held") && !diskAnswer.includes("commit=") && diskAnswer.includes("[`x.ts`](?review=") && diskAnswer.includes("file=y.ts"), diskAnswer);
   check(S, "no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
   await page.close();
   server.stop();

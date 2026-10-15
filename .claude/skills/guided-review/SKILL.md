@@ -50,6 +50,7 @@ in the middle:
 | `ackNote.ts` | confirms you've seen a note, before you have an answer for it - turns "sent, waiting for an agent" into "the agent is on it" honestly |
 | `reply.ts` | answers a note in its own thread — what you did, or the one question you need answered |
 | `stackEdit.ts` | held edits, committing or amending them, and restacking the PRs above - git plumbing only, no checkout |
+| `editPlace.ts` | where an edit for a note lands (disk, or which PR's held edits), shared by `held.ts` and `reply.ts --edited` |
 | `held.ts` | for an agent acting on a note: makes the edit it asks for where the reviewer's own would go - `open` (disk, or a scratch worktree of the PR's held edits) then `save` |
 | `restack.ts` | for an agent asked to resolve a conflict the page hit: `status`, `resolve` (sets it up in a scratch worktree), `resolved` (records the fix) |
 
@@ -924,12 +925,17 @@ When a note arrives, one of two things happens:
   check the branch out, commit, or amend yourself: committing what is held is
   the reviewer's call, made from the commit bar. If edits are already held
   against a different commit of that PR, `open` refuses - one place per PR -
-  so ask in the thread for them to be committed or amended first. Then reply:
+  so ask in the thread for them to be committed or amended first. Then reply,
+  **naming every file you edited** with `--edited` (once per file) - the
+  reply ends in a list of them, each a link that reads that file in the
+  page, where the edit landed (on disk, or on the held edits' stop):
 
   ```bash
   node .claude/skills/guided-review/reply.ts --notes <store>/notes.json \
     --path src/ui/useStableValue.ts --line 7 \
-    --text "moved to src/util/preact/useStableValue.ts, import sites updated"
+    --html <review.html> --repo <checkout> \
+    --edited src/util/preact/useStableValue.ts --edited src/ui/Panel.tsx \
+    --text "moved to \`src/util/preact\`, import sites updated"
   ```
 
   `--text` is **markdown**: `code`, **bold**, lists, links, fenced blocks.
@@ -1552,8 +1558,11 @@ diffs stay in `ui-monospace`.
   shows the conversation and a Reply box; the agent's side arrives through
   `reply.ts`. **An agent's message is markdown**, rendered by
   `snarkdown-in-react` (`Markdown.tsx`): it builds elements, never an html
-  string, so raw html in it shows as text. Its links open in a new tab, so
-  following one never leaves the review, and only http(s), mailto, `#` and
+  string, so raw html in it shows as text. A link to a file of this page
+  (`?review=…&commit=…&file=…`, which `reply.ts --edited` writes) reads that
+  file in place, through `goToPlace` as "also edited in" does; held edits
+  committed since fall back to the PR read whole. Any other link opens in a
+  new tab, so following one never leaves the review, and only http(s), mailto, `#` and
   relative ones are links at all (`javascript:` and the like show as text);
   images only from http(s) or `data:image`. The reviewer's own messages show
   exactly as typed. The package ships its TypeScript source rather than
